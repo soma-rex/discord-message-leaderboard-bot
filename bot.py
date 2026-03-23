@@ -6,6 +6,7 @@ import os
 import sqlite3
 import textwrap
 import time
+import re
 
 import discord
 from discord import app_commands
@@ -89,6 +90,18 @@ event_end_time = None
 
 ai_cooldown = {}
 
+
+
+def extract_emojis(text):
+    emoji_pattern = re.compile(
+        "[\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols
+        "\U0001F680-\U0001F6FF"  # transport
+        "\U0001F1E0-\U0001F1FF]+",  # flags
+        flags=re.UNICODE
+    )
+    return emoji_pattern.findall(text)
+
 def can_use_ai(user_id):
     now = time.time()
     if user_id in ai_cooldown and now - ai_cooldown[user_id] < 5:
@@ -168,7 +181,15 @@ def _ai_chat_sync(user_id, prompt):
     messages = [
         {
             "role": "system",
-            "content": "You are a witty Discord assistant. Remember context of the conversation. Keep replies short and natural."
+            "content": """
+        You are a witty Discord assistant.
+
+        - Pay attention to emojis, stickers, and images mentioned in the prompt
+        - Do not spam emojis or use excessively, especially if the user isnt using them at all
+        - React naturally to them (funny, casual, slightly sarcastic)
+        - Keep replies short and human-like
+        - Remember previous messages for context
+        """
         },
         *history
     ]
@@ -276,10 +297,65 @@ async def on_message(message):
             return
 
         try:
-            reply = await ai_chat(message.author.id, message.content)
+            # 🔥 BASE CONTENT
+            content = message.content or ""
+
+            # 🔥 DEFAULT VALUES (IMPORTANT FIX)
+            emojis = []
+            custom_emojis = []
+            stickers = []
+            image_urls = []
+
+            # 🔥 EMOJIS
+            emojis = extract_emojis(content)
+
+            # 🔥 CUSTOM EMOJIS
+            custom_emojis = re.findall(r"<a?:\w+:\d+>", content)
+
+            # 🔥 STICKERS
+            stickers = [s.name for s in message.stickers]
+
+            # 🔥 IMAGES
+            image_urls = [
+                a.url for a in message.attachments
+                if a.content_type and a.content_type.startswith("image")
+            ]
+
+            # 🔥 FIX EMPTY MESSAGE
+            if not content:
+                if stickers:
+                    content = f"User sent a sticker: {stickers}"
+                elif image_urls:
+                    content = f"User sent an image: {image_urls}"
+                elif emojis:
+                    content = f"User sent emojis: {emojis}"
+
+            # 🔥 BUILD EXTRA CONTEXT
+            extra_context = ""
+
+            if emojis:
+                extra_context += f"\nEmojis: {emojis}"
+
+            if custom_emojis:
+                extra_context += f"\nCustom Emojis: {custom_emojis}"
+
+            if stickers:
+                extra_context += f"\nStickers: {stickers}"
+
+            if image_urls:
+                extra_context += f"\nImages: {image_urls}"
+
+            # 🔥 FINAL PROMPT
+            full_prompt = content + extra_context
+
+            # 🔥 SEND WITH USER ID (for memory)
+            reply = await ai_chat(message.author.id, full_prompt)
+
             await message.reply(reply)
+
         except Exception as e:
             await message.reply(f"Error: {e}")
+
 
     # --- EXISTING CODE BELOW (UNCHANGED) ---
 
