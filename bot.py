@@ -10,6 +10,33 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands
+from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
+
+api_key = os.getenv("GROQ_API_KEY")
+
+if not api_key:
+    raise ValueError("GROQ_API_KEY not found in environment")
+
+groq_client = Groq(api_key=api_key)
+
+async def generate_roast(username):
+    return await asyncio.to_thread(_generate_roast_sync, username)
+
+def _generate_roast_sync(username):
+    prompt = f"Roast a Discord user named {username}. Be funny, clever, offensive , no nsfw or being inappropriate or slurs, short, savage, to the point"
+
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a witty Gen-Z roast generator."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    return response.choices[0].message.content
 
 DB_PATH = "messages.db"
 TOKEN_ENV_VARS = ("DISCORD_TOKEN", "BOT_TOKEN")
@@ -243,6 +270,14 @@ async def pingstorm(ctx: commands.Context, member: discord.Member):
         await ctx.send(member.mention)
         await asyncio.sleep(1)
 
+
+@bot.command(name="roast")
+async def roast_prefix(ctx, member: discord.Member):
+    try:
+        roast_text = await generate_roast(member.name)
+        await ctx.send(f"{member.mention} {roast_text}")
+    except Exception as e:
+        await ctx.send(f"Error: {e}")
 
 @bot.command(name="eval")
 @commands.is_owner()
@@ -784,5 +819,13 @@ async def find_reaction(
             f"No messages with {emoji} found in {channel.mention}.",
             ephemeral=True
         )
+@bot.tree.command(name="roast", description="Roast a user")
+async def roast(interaction: discord.Interaction, user: discord.Member):
+    await interaction.response.defer()
 
+    try:
+        roast_text = await generate_roast(user.mention)
+        await interaction.followup.send(f"{user.mention} {roast_text}")
+    except Exception as e:
+        await interaction.followup.send(f"Error: {e}")
 bot.run(get_token())
