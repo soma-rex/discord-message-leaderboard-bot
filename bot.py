@@ -189,6 +189,27 @@ async def on_ready():
     print(f"Synced {len(synced)} commands")
     print(f"Bot ready: {bot.user}")
 
+async def generate_recommendation(prompt):
+    return await asyncio.to_thread(_generate_recommendation_sync, prompt)
+
+def _generate_recommendation_sync(prompt):
+    full_prompt = f"""
+    Based on this request: "{prompt}"
+
+    Recommend 1-3 shows, anime, manga, or books.
+    Keep it short and clear.
+    Include a short reason for each.
+    """
+
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a recommendation expert for anime, shows, books, and manga."},
+            {"role": "user", "content": full_prompt}
+        ]
+    )
+
+    return response.choices[0].message.content
 
 @bot.event
 async def on_message(message):
@@ -276,6 +297,14 @@ async def roast_prefix(ctx, member: discord.Member):
     try:
         roast_text = await generate_roast(member.name)
         await ctx.send(f"{member.mention} {roast_text}")
+    except Exception as e:
+        await ctx.send(f"Error: {e}")
+
+@bot.command(name="recommend")
+async def recommend_prefix(ctx, *, prompt: str):
+    try:
+        result = await generate_recommendation(prompt)
+        await ctx.send(result)
     except Exception as e:
         await ctx.send(f"Error: {e}")
 
@@ -826,6 +855,16 @@ async def roast(interaction: discord.Interaction, user: discord.Member):
     try:
         roast_text = await generate_roast(user.mention)
         await interaction.followup.send(f"{user.mention} {roast_text}")
+    except Exception as e:
+        await interaction.followup.send(f"Error: {e}")
+
+@bot.tree.command(name="recommend", description="Get AI recommendations")
+async def recommend(interaction: discord.Interaction, prompt: str):
+    await interaction.response.defer()
+
+    try:
+        result = await generate_recommendation(prompt)
+        await interaction.followup.send(result)
     except Exception as e:
         await interaction.followup.send(f"Error: {e}")
 bot.run(get_token())
