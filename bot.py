@@ -44,7 +44,8 @@ DEFAULT_COOLDOWN = 10
 
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
-
+user_context = {}
+MAX_HISTORY = 6  # keep last 6 messages (3 user + 3 bot)
 cursor.execute(
     """
     CREATE TABLE IF NOT EXISTS messages (
@@ -85,6 +86,15 @@ last_message_time = {}
 
 event_active = False
 event_end_time = None
+
+ai_cooldown = {}
+
+def can_use_ai(user_id):
+    now = time.time()
+    if user_id in ai_cooldown and now - ai_cooldown[user_id] < 5:
+        return False
+    ai_cooldown[user_id] = now
+    return True
 
 
 def get_config_value(key: str, default: str | None = None):
@@ -139,6 +149,41 @@ def load_settings():
 
 load_settings()
 
+async def ai_chat(user_id, prompt):
+    return await asyncio.to_thread(_ai_chat_sync, user_id, prompt)
+
+def _ai_chat_sync(user_id, prompt):
+    if user_id not in user_context:
+        user_context[user_id] = []
+
+    history = user_context[user_id]
+
+    # Add user message
+    history.append({"role": "user", "content": prompt})
+
+    # Trim history
+    history = history[-MAX_HISTORY:]
+    user_context[user_id] = history
+
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a witty Discord assistant. Remember context of the conversation. Keep replies short and natural."
+        },
+        *history
+    ]
+
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=messages
+    )
+
+    reply = response.choices[0].message.content
+
+    # Add bot reply to history
+    user_context[user_id].append({"role": "assistant", "content": reply})
+
+    return reply
 
 def get_leaderboard_channel(guild: discord.Guild | None):
     if leaderboard_channel is None or guild is None:
@@ -217,6 +262,26 @@ async def on_message(message):
 
     if message.author.bot:
         return
+
+    # 🔥 AI TRIGGER (mention OR reply to bot)
+    is_reply_to_bot = (
+        message.reference
+        and message.reference.resolved
+        and message.reference.resolved.author == bot.user
+    )
+
+    if bot.user in message.mentions or is_reply_to_bot:
+
+        if not can_use_ai(message.author.id):
+            return
+
+        try:
+            reply = await ai_chat(message.author.id, message.content)
+            await message.reply(reply)
+        except Exception as e:
+            await message.reply(f"Error: {e}")
+
+    # --- EXISTING CODE BELOW (UNCHANGED) ---
 
     if event_active and event_end_time is not None and time.time() >= event_end_time:
         await message.channel.send("The competition timer has ended. An admin can now use `/event end`.")
