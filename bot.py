@@ -7,6 +7,7 @@ import sqlite3
 import textwrap
 import time
 import re
+import random
 
 import discord
 from discord import app_commands
@@ -89,6 +90,7 @@ event_active = False
 event_end_time = None
 
 ai_cooldown = {}
+bombed_users = {}  # user_id: end_time
 
 
 
@@ -284,6 +286,17 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # 💣 BOMB SYSTEM
+    if message.author.id in bombed_users:
+        if time.time() < bombed_users[message.author.id]:
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                pass
+            return
+        else:
+            del bombed_users[message.author.id]
+
     # 🔥 AI TRIGGER (mention OR reply to bot)
     is_reply_to_bot = (
         message.reference
@@ -432,6 +445,42 @@ async def pingstorm(ctx: commands.Context, member: discord.Member):
         await ctx.send(member.mention)
         await asyncio.sleep(1)
 
+@bot.command(name="bomb")
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 10, commands.BucketType.user)
+async def bomb(ctx, member: discord.Member):
+
+    # ❌ Can't bomb if YOU are bombed
+    if ctx.author.id in bombed_users and time.time() < bombed_users[ctx.author.id]:
+        await ctx.send("💀 You are bombed, you can't use this command.")
+        return
+
+    duration = random.randint(10, 300)
+
+    bombed_users[member.id] = time.time() + duration
+
+    await ctx.send(
+        f"💣 {member.mention} has been bombed for **{duration} seconds**!"
+    )
+
+@bot.command(name="bombset")
+@commands.is_owner()
+async def bombset(ctx, member: discord.Member, seconds: int):
+
+    # ❌ Can't bomb if YOU are bombed
+    if ctx.author.id in bombed_users and time.time() < bombed_users[ctx.author.id]:
+        await ctx.send("💀 You are bombed, you can't use this command.")
+        return
+
+    if seconds <= 0:
+        await ctx.send("Time must be greater than 0.")
+        return
+
+    bombed_users[member.id] = time.time() + seconds
+
+    await ctx.send(
+        f"💣 {member.mention} has been bombed for **{seconds} seconds**!"
+    )
 
 @bot.command(name="roast")
 async def roast_prefix(ctx, member: discord.Member):
@@ -440,6 +489,26 @@ async def roast_prefix(ctx, member: discord.Member):
         await ctx.send(f"{member.mention} {roast_text}")
     except Exception as e:
         await ctx.send(f"Error: {e}")
+
+@bot.command(name="defuse")
+@commands.is_owner()
+async def defuse(ctx, member: discord.Member):
+
+    # ❌ If user is not bombed
+    if member.id not in bombed_users:
+        await ctx.send(f"🧯 {member.mention} is not bombed.")
+        return
+
+    # ❌ If bomb already expired (cleanup safety)
+    if time.time() >= bombed_users[member.id]:
+        del bombed_users[member.id]
+        await ctx.send(f"🧯 {member.mention} is already free.")
+        return
+
+    # ✅ Remove bomb
+    del bombed_users[member.id]
+
+    await ctx.send(f"🧯 {member.mention} has been defused!")
 
 @bot.command(name="recommend")
 async def recommend_prefix(ctx, *, prompt: str):
