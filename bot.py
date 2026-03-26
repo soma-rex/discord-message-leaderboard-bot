@@ -1332,3 +1332,4 @@ async def recommend(interaction: discord.Interaction, prompt: str):
     except Exception as e:
         await interaction.followup.send(f"Error: {e}")
 bot.run(get_token())
+print("sexy")
