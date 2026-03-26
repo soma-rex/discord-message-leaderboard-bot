@@ -18,7 +18,7 @@ from discord.ext.commands import CommandOnCooldown
 from difflib import SequenceMatcher
 
 load_dotenv()
-print("sexy")
+
 
 api_key = os.getenv("GROQ_API_KEY")
 
