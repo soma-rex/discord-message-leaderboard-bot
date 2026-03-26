@@ -14,6 +14,8 @@ from discord import app_commands
 from discord.ext import commands
 from groq import Groq
 from dotenv import load_dotenv
+from discord.ext.commands import CommandOnCooldown
+from difflib import SequenceMatcher
 
 load_dotenv()
 
@@ -39,6 +41,15 @@ def _generate_roast_sync(username):
     )
 
     return response.choices[0].message.content
+
+
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio() > 0.6
+
+def clean_name(name):
+    name = name.replace("\\", "")  # remove \.
+    return (re
+            .sub(r'[^a-z0-9]', '', name.lower()))
 
 DB_PATH = "messages.db"
 TOKEN_ENV_VARS = ("DISCORD_TOKEN", "BOT_TOKEN")
@@ -70,6 +81,8 @@ conn.commit()
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
+intents.reactions = True
 
 bot = commands.Bot(
     command_prefix=commands.when_mentioned_or(";", "&"),
@@ -89,10 +102,29 @@ last_message_time = {}
 event_active = False
 event_end_time = None
 
+RUMBLE_BOT_ID = 693167035068317736
+alive_views = []
+rumble_host = None
+rumble_active = False
+rumble_start_message_id = None
+rumble_participants = {}  # user_id -> {alive, death_msg, name}
 ai_cooldown = {}
 bombed_users = {}  # user_id: end_time
 
+def is_match(user_clean, dead_clean):
 
+    # exact match
+    if user_clean == dead_clean:
+        return True
+
+    # strong partial (only if meaningful length)
+    if len(user_clean) > 4 and user_clean in dead_clean:
+        return True
+
+    if len(dead_clean) > 4 and dead_clean in user_clean:
+        return True
+
+    return False
 
 def extract_emojis(text):
     emoji_pattern = re.compile(
@@ -251,6 +283,58 @@ def get_token() -> str:
     )
 
 
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    global rumble_participants
+
+    if payload.message_id != rumble_start_message_id:
+        return
+
+    guild = bot.get_guild(payload.guild_id)
+    if not guild:
+        return
+
+    member = guild.get_member(payload.user_id)
+    if not member or member.bot:
+        return
+
+    rumble_participants[payload.user_id] = {
+        "alive": True,
+        "death_msg": None,
+        "name": member.name.lower()
+    }
+
+class AliveView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Am I Alive?", style=discord.ButtonStyle.primary)
+    async def check_alive(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        user_id = interaction.user.id
+
+        if user_id not in rumble_participants:
+            await interaction.response.send_message(
+                "<a:cross:1479904917702578306> You didn’t join this rumble.",
+                ephemeral=True
+            )
+            return
+
+        data = rumble_participants[user_id]
+
+        if data["alive"]:
+            await interaction.response.send_message(
+                "<a:check:1479904904205041694> You are still alive!",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"<a:dead:1486706627376713829> You died.\n🔗 {data['death_msg']}",
+                ephemeral=True
+            )
+
 @bot.event
 async def on_ready():
     synced = await bot.tree.sync()
@@ -281,11 +365,165 @@ def _generate_recommendation_sync(prompt):
 
 @bot.event
 async def on_message(message):
+    global alive_view_instance
     global event_active, event_end_time
+    global rumble_active, rumble_start_message_id, rumble_participants
 
-    if message.author.bot:
+    if message.author == bot.user:
         return
 
+    if message.author.id == RUMBLE_BOT_ID:
+
+        for _ in range(10):  # try up to ~1.5 seconds
+            if message.embeds:
+                break
+            await asyncio.sleep(0.4)
+
+        if not message.embeds:
+            print("❌ No embed found after waiting")
+            return
+
+        text = ""
+
+        for embed in message.embeds:
+            if embed.title:
+                text += embed.title + " "
+            if embed.description:
+                text += embed.description + " "
+            for field in embed.fields:
+                text += field.name + " " + field.value + " "
+
+        text = text.lower()
+
+        print("FULL EMBED TEXT:", text)
+
+        if "click the emoji" in text or "to join" in text:
+
+            global rumble_host
+
+            # ✅ Extract host
+            match = re.search(r"hosted by ([^\n]+)", text)
+
+            if match:
+                raw_host = match.group(1)
+
+                # ✂️ cut off anything after extra info
+                raw_host = raw_host.split("random")[0]
+                raw_host = raw_host.split("era")[0]
+
+                rumble_host = raw_host.strip()
+                print("🎯 HOST:", rumble_host)
+
+            if rumble_active:
+                print("⚠️ Resetting previous rumble")
+
+            rumble_active = True
+            rumble_start_message_id = message.id
+            rumble_participants = {}
+            alive_views.clear()
+
+            await message.channel.send("<a:check:1479904904205041694> Rumble detected and tracking started!")
+            print("✅ START DETECTED")
+            return
+        # ⚔️ ROUND DETECTION
+        if rumble_active and "round" in text:
+
+            for embed in message.embeds:
+                if not embed.description:
+                    continue
+
+                for line in embed.description.split("\n"):
+                    line_clean = clean_name(line)
+
+                    # 💀 DETECT DEATH
+                    dead_players_raw = re.findall(r"~~(.*?)~~", line)
+
+                    for raw in dead_players_raw:
+
+                        # ✅ extract ONLY bold username inside ** **
+                        # remove emojis first
+                        clean_raw = re.sub(r"<a?:\w+:\d+>", "", raw)
+
+                        # remove bold if present
+                        clean_raw = clean_raw.replace("**", "")
+
+                        dead_name = clean_raw.strip()
+
+                        dead_clean = clean_name(dead_name)
+
+                        print(f"DEBUG EXTRACTED NAME: {dead_name}")
+                        print(f"DEBUG CLEAN: {dead_clean}")
+
+                        for user_id, data in rumble_participants.items():
+                            user_clean = clean_name(data["name"])
+
+                            print(f"COMPARE: {user_clean} vs {dead_clean}")
+
+                            if is_match(user_clean, dead_clean):
+                                data["alive"] = False
+                                data["death_msg"] = message.jump_url
+
+                                print(f"💀 {data['name']} died")
+
+                    # 🟢 DETECT REVIVE (NEW)
+                    if any(word in line.lower() for word in
+                           ["revived", "brought back", "came back", "returned to life"]):
+
+                        for user_id, data in rumble_participants.items():
+                            user_clean = clean_name(data["name"])
+
+                            if user_clean in line_clean:
+                                data["alive"] = True
+                                data["death_msg"] = None
+                                print(f"💚 {data['name']} revived")
+
+            view = AliveView()
+            alive_views.append(view)
+
+            await message.channel.send(
+                "Check your status:",
+                view=view
+            )
+            print("⚔️ ROUND DETECTED")
+            return
+
+        # 🏆 WINNER DETECTION
+        if rumble_active and ("winner" in text or "won the rumble" in text):
+
+            rumble_active = False
+
+            # 🛑 DISABLE BUTTON
+
+            for view in alive_views:
+                for item in view.children:
+                    item.disabled = True
+                view.stop()
+
+            alive_views.clear()
+            host_mention = None
+
+            if rumble_host and message.guild:
+                for member in message.guild.members:
+                    name_clean = clean_name(member.name)
+                    host_clean = clean_name(rumble_host)
+
+                    if name_clean.startswith(host_clean) or host_clean.startswith(name_clean):
+                        host_mention = member.mention
+                        break
+
+            if host_mention:
+                await message.channel.send(
+                    f"{host_mention}, The rumble has ended! <:rumble:1486707784450969700>",
+
+                )
+            else:
+                await message.channel.send(
+                    "🏁 Rumble ended!",
+
+                )
+
+            print("🏆 WINNER DETECTED")
+            return
     # 💣 BOMB SYSTEM
     if message.author.id in bombed_users:
         if time.time() < bombed_users[message.author.id]:
@@ -424,6 +662,14 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
+
+    # ⏳ COOLDOWN HANDLER
+    if isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(
+            f"<:timer:1480098142379577394> You can use this again in {round(error.retry_after)} seconds."
+        )
+        return
+
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("You need admin permission to use this command.")
         return
@@ -446,21 +692,28 @@ async def pingstorm(ctx: commands.Context, member: discord.Member):
         await asyncio.sleep(1)
 
 @bot.command(name="bomb")
-@commands.has_permissions(administrator=True)
-@commands.cooldown(1, 10, commands.BucketType.user)
+@commands.cooldown(1, 3600, commands.BucketType.user)  # 1 hour cooldown
 async def bomb(ctx, member: discord.Member):
+
+    REQUIRED_ROLE_ID = 996368478216929371
+
+    # 🔒 CHECK ROLE
+    if not any(role.id == REQUIRED_ROLE_ID for role in ctx.author.roles):
+        await ctx.send("<a:cross:1479904917702578306> You don't have permission to use this command.")
+        return
 
     # ❌ Can't bomb if YOU are bombed
     if ctx.author.id in bombed_users and time.time() < bombed_users[ctx.author.id]:
-        await ctx.send("💀 You are bombed, you can't use this command.")
+        await ctx.send("<a:dead:1486706627376713829> You are bombed, you can't use this command.")
         return
 
-    duration = random.randint(10, 300)
+    # 🎲 RANDOM TIME (10–45 seconds)
+    duration = random.randint(10, 45)
 
     bombed_users[member.id] = time.time() + duration
 
     await ctx.send(
-        f"💣 {member.mention} has been bombed for **{duration} seconds**!"
+        f"<:bomb:1486706629201363054> {member.mention} has been bombed for **{duration} seconds**!"
     )
 
 @bot.command(name="bombset")
@@ -469,7 +722,7 @@ async def bombset(ctx, member: discord.Member, seconds: int):
 
     # ❌ Can't bomb if YOU are bombed
     if ctx.author.id in bombed_users and time.time() < bombed_users[ctx.author.id]:
-        await ctx.send("💀 You are bombed, you can't use this command.")
+        await ctx.send("<a:dead:1486706627376713829> You are bombed, you can't use this command.")
         return
 
     if seconds <= 0:
@@ -479,7 +732,7 @@ async def bombset(ctx, member: discord.Member, seconds: int):
     bombed_users[member.id] = time.time() + seconds
 
     await ctx.send(
-        f"💣 {member.mention} has been bombed for **{seconds} seconds**!"
+        f"<:bomb:1486706629201363054> {member.mention} has been bombed for **{seconds} seconds**!"
     )
 
 @bot.command(name="roast")
@@ -716,6 +969,7 @@ async def end_event(interaction: discord.Interaction):
     channel = get_leaderboard_channel(interaction.guild)
     if channel is not None:
         await channel.send(embed=embed)
+
 
 
 class LeaderboardView(discord.ui.View):
