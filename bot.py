@@ -18,6 +18,7 @@ from discord.ext.commands import CommandOnCooldown
 from difflib import SequenceMatcher
 
 load_dotenv()
+print("sexy")
 
 api_key = os.getenv("GROQ_API_KEY")
 
@@ -1332,4 +1333,3 @@ async def recommend(interaction: discord.Interaction, prompt: str):
     except Exception as e:
         await interaction.followup.send(f"Error: {e}")
 bot.run(get_token())
-print("sexy")
