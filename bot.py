@@ -113,23 +113,22 @@ last_message_time = {}
 event_active = False
 event_end_time = None
 
+
+
 RUMBLE_BOT_ID = 693167035068317736
-alive_views = []
-rumble_host = None
-rumble_active = False
-rumble_start_message_id = None
-rumble_participants = {}  # user_id -> {alive, death_msg, name}
+
+rumbles = {}
+
 ai_cooldown = {}
 bombed_users = {}  # user_id: end_time
 
 def is_match(user_clean, dead_clean):
-    return user_clean == dead_clean
+    user_clean = clean_name(user_clean)
+    dead_clean = clean_name(dead_clean)
 
-    # exact match
     if user_clean == dead_clean:
         return True
 
-    # strong partial (only if meaningful length)
     if len(user_clean) > 4 and user_clean in dead_clean:
         return True
 
@@ -299,9 +298,14 @@ def get_token() -> str:
 
 @bot.event
 async def on_raw_reaction_add(payload):
-    global rumble_participants
+    target_rumble = None
 
-    if payload.message_id != rumble_start_message_id:
+    for r in rumbles.values():
+        if payload.message_id == r["start_message_id"]:
+            target_rumble = r
+            break
+
+    if not target_rumble:
         return
 
     guild = bot.get_guild(payload.guild_id)
@@ -312,29 +316,30 @@ async def on_raw_reaction_add(payload):
     if not member or member.bot:
         return
 
-    rumble_participants[payload.user_id] = {
+    target_rumble["participants"][payload.user_id] = {
         "alive": True,
         "death_msg": None,
-        "name": clean_name(member.name)
+        "name": member.name
     }
 
 class AliveView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, rumble):
         super().__init__(timeout=None)
+        self.rumble = rumble
 
     @discord.ui.button(label="Am I Alive?", style=discord.ButtonStyle.primary)
     async def check_alive(self, interaction: discord.Interaction, button: discord.ui.Button):
 
         user_id = interaction.user.id
 
-        if user_id not in rumble_participants:
+        if user_id not in self.rumble["participants"]:
             await interaction.response.send_message(
                 "<a:cross:1479904917702578306> You didn’t join this rumble.",
                 ephemeral=True
             )
             return
 
-        data = rumble_participants[user_id]
+        data = self.rumble["participants"][user_id]
 
         if data["alive"]:
             await interaction.response.send_message(
@@ -377,9 +382,20 @@ def _generate_recommendation_sync(prompt):
 
 @bot.event
 async def on_message(message):
-    global alive_view_instance
     global event_active, event_end_time
-    global rumble_active, rumble_start_message_id, rumble_participants
+
+    channel_id = message.channel.id
+
+    if channel_id not in rumbles:
+        rumbles[channel_id] = {
+            "active": False,
+            "host": None,
+            "participants": {},
+            "start_message_id": None,
+            "alive_views": []
+        }
+
+    rumble = rumbles[channel_id]
 
     if message.author == bot.user:
         return
@@ -411,7 +427,7 @@ async def on_message(message):
 
         if "click the emoji" in text or "to join" in text:
 
-            global rumble_host
+
 
             # ✅ Extract host
             match = re.search(r"hosted by ([^\n]+)", text)
@@ -423,22 +439,22 @@ async def on_message(message):
                 raw_host = raw_host.split("random")[0]
                 raw_host = raw_host.split("era")[0]
 
-                rumble_host = raw_host.strip()
-                print("🎯 HOST:", rumble_host)
+                rumble["host"] = raw_host
+                print("🎯 HOST:", rumble["host"])
 
-            if rumble_active:
+            if rumble["active"]:
                 print("⚠️ Resetting previous rumble")
 
-            rumble_active = True
-            rumble_start_message_id = message.id
-            rumble_participants = {}
-            alive_views.clear()
+            rumble["active"] = True
+            rumble["start_message_id"] = message.id
+            rumble["participants"] = {}
+            rumble["alive_views"].clear()
 
             await message.channel.send("<a:check:1479904904205041694> Rumble detected and tracking started!")
             print("✅ START DETECTED")
             return
         # ⚔️ ROUND DETECTION
-        if rumble_active and "round" in text:
+        if rumble["active"] and "round" in text:
 
             for embed in message.embeds:
                 if not embed.description:
@@ -466,7 +482,7 @@ async def on_message(message):
                         print(f"DEBUG EXTRACTED NAME: {dead_name}")
                         print(f"DEBUG CLEAN: {dead_clean}")
 
-                        for user_id, data in rumble_participants.items():
+                        for user_id, data in rumble["participants"].items():
                             user_clean = clean_name(data["name"])
 
                             print(f"COMPARE: {user_clean} vs {dead_clean}")
@@ -481,16 +497,16 @@ async def on_message(message):
                     if any(word in line.lower() for word in
                            ["revived", "brought back", "came back", "returned to life"]):
 
-                        for user_id, data in rumble_participants.items():
+                        for user_id, data in rumble["participants"].items():
                             user_clean = clean_name(data["name"])
 
-                            if is_match(user_clean, line_clean):
+                            if user_clean in line_clean:
                                 data["alive"] = True
                                 data["death_msg"] = None
                                 print(f"💚 {data['name']} revived")
 
-            view = AliveView()
-            alive_views.append(view)
+            view = AliveView(rumble)
+            rumble["alive_views"].append(view)
 
             await message.channel.send(
                 "Check your status:",
@@ -500,24 +516,24 @@ async def on_message(message):
             return
 
         # 🏆 WINNER DETECTION
-        if rumble_active and ("winner" in text or "won the rumble" in text):
+        if rumble["active"] and ("winner" in text or "won the rumble" in text):
 
-            rumble_active = False
+            rumble["active"] = False
 
             # 🛑 DISABLE BUTTON
 
-            for view in alive_views:
+            for view in rumble["alive_views"]:
                 for item in view.children:
                     item.disabled = True
                 view.stop()
 
-            alive_views.clear()
+            rumble["alive_views"].clear()
             host_mention = None
 
-            if rumble_host and message.guild:
+            if rumble["host"] and message.guild:
                 for member in message.guild.members:
                     name_clean = clean_name(member.name)
-                    host_clean = clean_name(rumble_host)
+                    host_clean = clean_name(rumble["host"])
 
                     if name_clean.startswith(host_clean) or host_clean.startswith(name_clean):
                         host_mention = member.mention
