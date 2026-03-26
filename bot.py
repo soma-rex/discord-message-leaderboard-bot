@@ -48,9 +48,19 @@ def similar(a, b):
     return SequenceMatcher(None, a, b).ratio() > 0.6
 
 def clean_name(name):
-    name = name.replace("\\", "")  # remove \.
-    return (re
-            .sub(r'[^a-z0-9]', '', name.lower()))
+    name = name.replace("\\", "")
+    name = name.lower()
+
+    # remove "the something" titles
+    name = re.sub(r"\bthe\s+\w+", "", name)
+
+    # remove extra spaces
+    name = name.strip()
+
+    # remove non-alphanumeric
+    name = re.sub(r"[^a-z0-9]", "", name)
+
+    return name
 
 DB_PATH = "messages.db"
 TOKEN_ENV_VARS = ("DISCORD_TOKEN", "BOT_TOKEN")
@@ -113,6 +123,7 @@ ai_cooldown = {}
 bombed_users = {}  # user_id: end_time
 
 def is_match(user_clean, dead_clean):
+    return user_clean == dead_clean
 
     # exact match
     if user_clean == dead_clean:
@@ -304,7 +315,7 @@ async def on_raw_reaction_add(payload):
     rumble_participants[payload.user_id] = {
         "alive": True,
         "death_msg": None,
-        "name": member.name.lower()
+        "name": clean_name(member.name)
     }
 
 class AliveView(discord.ui.View):
@@ -473,7 +484,7 @@ async def on_message(message):
                         for user_id, data in rumble_participants.items():
                             user_clean = clean_name(data["name"])
 
-                            if user_clean in line_clean:
+                            if is_match(user_clean, line_clean):
                                 data["alive"] = True
                                 data["death_msg"] = None
                                 print(f"💚 {data['name']} revived")
