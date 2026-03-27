@@ -630,7 +630,23 @@ async def on_message(message):
             # 🔥 SEND WITH USER ID (for memory)
             reply = await ai_chat(message.author.id, full_prompt)
 
-            await message.reply(reply)
+            # 🔒 block mass mentions
+            reply = reply.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
+
+            # 🔧 fix user mentions
+            reply = re.sub(r'(?<!\w)@(\d{17,20})', r'<@\1>', reply)
+
+            # ❌ remove role mentions
+            reply = re.sub(r'<@&\d+>', '@role', reply)
+
+            await message.reply(
+                reply,
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False
+                )
+            )
 
         except Exception as e:
             await message.reply(f"Error: {e}")
