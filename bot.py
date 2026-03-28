@@ -1544,6 +1544,28 @@ async def poker_chips(interaction: discord.Interaction):
     chips = get_chips(interaction.user.id)
     await interaction.response.send_message(f"💰 You have **{chips} chips**.", ephemeral=True)
 
+@poker_group.command(name="setchips", description="Add or remove chips")
+@app_commands.checks.has_permissions(administrator=True)
+async def poker_setchips(
+    interaction: discord.Interaction,
+    user: discord.Member,
+    amount: int
+):
+    ensure_chips(user.id)
+
+    cursor.execute(
+        "UPDATE poker_chips SET chips = chips + ? WHERE user_id = ?",
+        (amount, user.id)
+    )
+    conn.commit()
+
+    total = get_chips(user.id)
+
+    await interaction.response.send_message(
+        f"💰 Updated {user.mention}'s chips by **{amount}**\n"
+        f"New balance: **{total}**"
+    )
+
 
 # =========================
 # ADVANCED BETTING ROUNDS UPGRADE
@@ -1584,7 +1606,12 @@ class PokerBetView(discord.ui.View):
         for p in game["players"].values():
             p["bet"] = 0
             p["acted"] = False
-            game["turn_index"] = 0
+
+        alive_players = [
+            uid for uid in game["player_order"]
+            if not game["players"][uid]["folded"]
+        ]
+        game["turn_index"] = game["player_order"].index(alive_players[0])
 
         board = ' '.join(game['visible_community']) or 'No cards yet'
         current_player = game["player_order"][game["turn_index"]]
@@ -1787,7 +1814,7 @@ async def poker_start_rounds(interaction: discord.Interaction):
     game["community"] = [game["deck"].pop() for _ in range(5)]
     game["visible_community"] = []
     game["phase"] = "preflop"
-    game["current_bet"] = 100
+    game["current_bet"] = 0
 
     for user_id in game["players"]:
         game["players"][user_id].update({
