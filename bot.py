@@ -729,7 +729,7 @@ async def on_command_error(ctx: commands.Context, error):
 
 
 @bot.command()
-@commands.has_permissions(administrator=True)
+@commands.is_owner()
 async def pingstorm(ctx: commands.Context, member: discord.Member):
     for _ in range(25):
         await ctx.send(member.mention)
