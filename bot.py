@@ -1375,4 +1375,433 @@ async def recommend(interaction: discord.Interaction, prompt: str):
         await interaction.followup.send(result)
     except Exception as e:
         await interaction.followup.send(f"Error: {e}")
+
+# =========================
+# POKER + CHIPS EXTENSION
+# Add this BELOW your existing DB setup and ABOVE bot.run()
+# =========================
+
+from collections import Counter
+
+# --- DB TABLES ---
+cursor.execute(
+    '''
+    CREATE TABLE IF NOT EXISTS poker_chips (
+        user_id INTEGER PRIMARY KEY,
+        chips INTEGER NOT NULL DEFAULT 1000,
+        last_daily INTEGER DEFAULT 0
+    )
+    '''
+)
+conn.commit()
+
+# --- POKER STATE ---
+poker_games = {}
+SUITS = ["♠", "♥", "♦", "♣"]
+RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+RANK_VALUE = {r: i for i, r in enumerate(RANKS, start=2)}
+
+
+def ensure_chips(user_id: int):
+    cursor.execute("INSERT OR IGNORE INTO poker_chips (user_id, chips, last_daily) VALUES (?, 1000, 0)", (user_id,))
+    conn.commit()
+
+
+def get_chips(user_id: int) -> int:
+    ensure_chips(user_id)
+    cursor.execute("SELECT chips FROM poker_chips WHERE user_id = ?", (user_id,))
+    return cursor.fetchone()[0]
+
+
+def add_chips(user_id: int, amount: int):
+    ensure_chips(user_id)
+    cursor.execute("UPDATE poker_chips SET chips = chips + ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+
+
+def remove_chips(user_id: int, amount: int) -> bool:
+    chips = get_chips(user_id)
+    if chips < amount:
+        return False
+    cursor.execute("UPDATE poker_chips SET chips = chips - ? WHERE user_id = ?", (amount, user_id))
+    conn.commit()
+    return True
+
+
+def build_deck():
+    deck = [f"{rank}{suit}" for suit in SUITS for rank in RANKS]
+    random.shuffle(deck)
+    return deck
+
+
+def card_rank(card: str):
+    return card[:-1]
+
+
+def evaluate_hand(cards):
+    # simplified evaluator: highest pair/trips/full house/high card
+    ranks = [card_rank(c) for c in cards]
+    counts = Counter(ranks)
+    freq = sorted(counts.values(), reverse=True)
+    high = max(RANK_VALUE[r] for r in ranks)
+
+    if freq == [4, 1, 1, 1]:
+        return (7, high)
+    if freq == [3, 2, 1, 1]:
+        return (6, high)
+    if freq == [3, 1, 1, 1, 1]:
+        return (3, high)
+    if freq == [2, 2, 1, 1, 1]:
+        return (2, high)
+    if freq == [2, 1, 1, 1, 1, 1]:
+        return (1, high)
+    return (0, high)
+
+
+poker_group = app_commands.Group(name="poker", description="Texas Hold'em with chips")
+
+
+@bot.tree.command(name="daily", description="Claim your daily poker chips")
+async def daily(interaction: discord.Interaction):
+    ensure_chips(interaction.user.id)
+
+    cursor.execute("SELECT last_daily FROM poker_chips WHERE user_id = ?", (interaction.user.id,))
+    last_daily = cursor.fetchone()[0]
+    now = int(time.time())
+
+    if now - last_daily < 86400:
+        remaining = 86400 - (now - last_daily)
+        hours = remaining // 3600
+        minutes = (remaining % 3600) // 60
+        await interaction.response.send_message(
+            f"⏳ Come back in {hours}h {minutes}m for your next daily.",
+            ephemeral=True,
+        )
+        return
+
+    reward = random.randint(300, 700)
+    add_chips(interaction.user.id, reward)
+    cursor.execute("UPDATE poker_chips SET last_daily = ? WHERE user_id = ?", (now, interaction.user.id))
+    conn.commit()
+
+    total = get_chips(interaction.user.id)
+    await interaction.response.send_message(
+        f"💰 You claimed **{reward} chips**! You now have **{total}**.")
+
+
+@poker_group.command(name="create", description="Create a poker table")
+async def poker_create(interaction: discord.Interaction, buy_in: int = 100):
+    channel_id = interaction.channel.id
+
+    if channel_id in poker_games:
+        await interaction.response.send_message("A poker game is already active here.", ephemeral=True)
+        return
+
+    poker_games[channel_id] = {
+        "active": False,
+        "host": interaction.user.id,
+        "buy_in": buy_in,
+        "players": {},
+        "deck": [],
+        "community": [],
+        "pot": 0,
+        "phase": "waiting",
+    }
+
+    await interaction.response.send_message(
+        f"🃏 Poker table created! Buy-in: **{buy_in}** chips\nUse `/poker join` to join.")
+
+
+@poker_group.command(name="join", description="Join current poker table")
+async def poker_join(interaction: discord.Interaction):
+    game = poker_games.get(interaction.channel.id)
+    if not game or game["phase"] != "waiting":
+        await interaction.response.send_message("No joinable poker table here.", ephemeral=True)
+        return
+
+    if interaction.user.id in game["players"]:
+        await interaction.response.send_message("You're already in.", ephemeral=True)
+        return
+
+    buy_in = game["buy_in"]
+    if not remove_chips(interaction.user.id, buy_in):
+        await interaction.response.send_message("Not enough chips.", ephemeral=True)
+        return
+
+    game["players"][interaction.user.id] = {
+        "cards": [],
+        "folded": False,
+    }
+    game["pot"] += buy_in
+
+    await interaction.response.send_message(
+        f"✅ {interaction.user.mention} joined the poker table.")
+
+
+@poker_group.command(name="start", description="Start the poker game")
+async def poker_start(interaction: discord.Interaction):
+    game = poker_games.get(interaction.channel.id)
+    if not game:
+        await interaction.response.send_message("No poker table here.", ephemeral=True)
+        return
+
+    if interaction.user.id != game["host"]:
+        await interaction.response.send_message("Only the host can start.", ephemeral=True)
+        return
+
+    if len(game["players"]) < 2:
+        await interaction.response.send_message("Need at least 2 players.", ephemeral=True)
+        return
+
+    game["active"] = True
+    game["phase"] = "showdown"
+    game["deck"] = build_deck()
+
+    for user_id in game["players"]:
+        game["players"][user_id]["cards"] = [game["deck"].pop(), game["deck"].pop()]
+
+    game["community"] = [game["deck"].pop() for _ in range(5)]
+
+    # DM cards
+    for user_id, data in game["players"].items():
+        user = await bot.fetch_user(user_id)
+        try:
+            await user.send(f"🃏 Your cards: {' '.join(data['cards'])}")
+        except Exception:
+            pass
+
+    board = ' '.join(game['community'])
+    await interaction.response.send_message(f"🂠 Community cards: {board}\nPot: **{game['pot']}**")
+
+    # decide winner instantly (MVP version)
+    best_user = None
+    best_score = (-1, -1)
+    for user_id, data in game["players"].items():
+        score = evaluate_hand(data["cards"] + game["community"])
+        if score > best_score:
+            best_score = score
+            best_user = user_id
+
+    winnings = game["pot"]
+    add_chips(best_user, winnings)
+    winner_user = await bot.fetch_user(best_user)
+
+    await interaction.followup.send(
+        f"🏆 Winner: **{winner_user.name}** wins **{winnings} chips**!")
+
+    del poker_games[interaction.channel.id]
+
+
+@poker_group.command(name="chips", description="Check your chip balance")
+async def poker_chips(interaction: discord.Interaction):
+    chips = get_chips(interaction.user.id)
+    await interaction.response.send_message(f"💰 You have **{chips} chips**.", ephemeral=True)
+
+
+# =========================
+# ADVANCED BETTING ROUNDS UPGRADE
+# Adds fold / call / raise with flop-turn-river phases
+# =========================
+
+class PokerBetView(discord.ui.View):
+    def __init__(self, channel_id: int):
+        super().__init__(timeout=120)
+        self.channel_id = channel_id
+
+    async def on_timeout(self):
+        if self.channel_id in poker_games:
+            del poker_games[self.channel_id]
+
+    def get_game(self):
+        return poker_games.get(self.channel_id)
+
+    async def advance_phase(self, interaction: discord.Interaction):
+        game = self.get_game()
+        phases = ["preflop", "flop", "turn", "river", "showdown"]
+        idx = phases.index(game["phase"])
+        game["phase"] = phases[idx + 1]
+
+        if game["phase"] == "flop":
+            game["visible_community"] = game["community"][:3]
+        elif game["phase"] == "turn":
+            game["visible_community"] = game["community"][:4]
+        elif game["phase"] == "river":
+            game["visible_community"] = game["community"][:5]
+        elif game["phase"] == "showdown":
+            await finish_poker_game(interaction, game)
+            return
+
+        game["current_bet"] = 0
+        for p in game["players"].values():
+            p["bet"] = 0
+            p["acted"] = False
+
+        board = ' '.join(game['visible_community']) or 'No cards yet'
+        await interaction.channel.send(
+            f"""🃏 **{game['phase'].title()}**
+        Board: {board}
+        Pot: **{game['pot']}**""",
+            view=PokerBetView(self.channel_id)
+        )
+
+    async def resolve_turn(self, interaction: discord.Interaction):
+        game = self.get_game()
+        alive = [p for p in game["players"].values() if not p["folded"]]
+
+        alive_users = [uid for uid, p in game["players"].items() if not p["folded"]]
+        if len(alive_users) == 1:
+            winner_id = alive_users[0]
+            add_chips(winner_id, game["pot"])
+            winner = await bot.fetch_user(winner_id)
+            await interaction.channel.send(
+                f"🏆 **{winner.name}** wins by fold and gets **{game['pot']}** chips!"
+            )
+            del poker_games[self.channel_id]
+            return
+
+        alive = [p for p in game["players"].values() if not p["folded"]]
+        if all(p["acted"] for p in alive):
+            await self.advance_phase(interaction)
+
+    @discord.ui.button(label="Fold", style=discord.ButtonStyle.danger)
+    async def fold(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = self.get_game()
+        player = game["players"].get(interaction.user.id)
+        if not player:
+            await interaction.response.send_message("You're not in this hand.", ephemeral=True)
+            return
+        if player["acted"]:
+            await interaction.response.send_message(
+                "You already acted this round.",
+                ephemeral=True
+            )
+            return
+        player["folded"] = True
+        player["acted"] = True
+        await interaction.response.send_message("❌ You folded.", ephemeral=True)
+        await self.resolve_turn(interaction)
+
+    @discord.ui.button(label="Call", style=discord.ButtonStyle.primary)
+    async def call(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = self.get_game()
+        player = game["players"].get(interaction.user.id)
+        if not player or player["folded"]:
+            await interaction.response.send_message("You're not active in this hand.", ephemeral=True)
+            return
+        if player["acted"]:
+            await interaction.response.send_message(
+                "You already acted this round.",
+                ephemeral=True
+            )
+            return
+
+        amount = game["current_bet"] - player["bet"]
+        if amount < 0:
+            amount = 0
+        if not remove_chips(interaction.user.id, amount):
+            await interaction.response.send_message("Not enough chips to call.", ephemeral=True)
+            return
+
+
+        player["bet"] += amount
+        game["pot"] += amount
+        player["acted"] = True
+        await interaction.response.send_message(f"☎️ You called {amount}.", ephemeral=True)
+        await self.resolve_turn(interaction)
+
+    @discord.ui.button(label="Raise +100", style=discord.ButtonStyle.success)
+    async def raise_bet(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = self.get_game()
+        player = game["players"].get(interaction.user.id)
+        if not player or player["folded"]:
+            await interaction.response.send_message("You're not active in this hand.", ephemeral=True)
+            return
+
+
+        if player["acted"]:
+            await interaction.response.send_message(
+                "You already acted this round.",
+                ephemeral=True
+            )
+            return
+        target = game["current_bet"] + 100
+        amount = target - player["bet"]
+        if not remove_chips(interaction.user.id, amount):
+            await interaction.response.send_message("Not enough chips.", ephemeral=True)
+            return
+
+        game["current_bet"] = target
+        player["bet"] = target
+        game["pot"] += amount
+
+        for uid, p in game["players"].items():
+            if uid != interaction.user.id and not p["folded"]:
+                p["acted"] = False
+        player["acted"] = True
+
+        await interaction.response.send_message(f"📈 You raised to {target}.", ephemeral=True)
+        await self.resolve_turn(interaction)
+
+
+async def finish_poker_game(interaction: discord.Interaction, game):
+    active_players = {uid: p for uid, p in game["players"].items() if not p["folded"]}
+    best_user = None
+    best_score = (-1, -1)
+
+    for user_id, data in active_players.items():
+        score = evaluate_hand(data["cards"] + game["community"])
+        if score > best_score:
+            best_score = score
+            best_user = user_id
+
+    winnings = game["pot"]
+    add_chips(best_user, winnings)
+    winner = await bot.fetch_user(best_user)
+    await interaction.channel.send(f"🏆 **{winner.name}** wins **{winnings} chips**!")
+    del poker_games[interaction.channel.id]
+
+# Replace poker_start logic with phased rounds
+@poker_group.command(name="start_rounds", description="Start poker with real betting rounds")
+async def poker_start_rounds(interaction: discord.Interaction):
+    game = poker_games.get(interaction.channel.id)
+    if not game:
+        await interaction.response.send_message("No poker table here.", ephemeral=True)
+        return
+
+    if interaction.user.id != game["host"]:
+        await interaction.response.send_message("Only the host can start.", ephemeral=True)
+        return
+
+    if len(game["players"]) < 2:
+        await interaction.response.send_message("Need at least 2 players.", ephemeral=True)
+        return
+
+    game["deck"] = build_deck()
+    game["community"] = [game["deck"].pop() for _ in range(5)]
+    game["visible_community"] = []
+    game["phase"] = "preflop"
+    game["current_bet"] = 100
+
+    for user_id in game["players"]:
+        game["players"][user_id].update({
+            "cards": [game["deck"].pop(), game["deck"].pop()],
+            "folded": False,
+            "bet": 0,
+            "acted": False,
+        })
+        user = await bot.fetch_user(user_id)
+        try:
+            await user.send(f"🃏 Your cards: {' '.join(game['players'][user_id]['cards'])}")
+        except Exception:
+            pass
+
+    await interaction.response.send_message(
+        f"""🂠 **Preflop betting started**
+    Pot: **{game['pot']}**
+    Current bet: **100**""",
+        view=PokerBetView(interaction.channel.id)
+    )
+
+bot.tree.add_command(poker_group)
+
 bot.run(get_token())
