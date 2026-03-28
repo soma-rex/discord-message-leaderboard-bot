@@ -1604,12 +1604,14 @@ async def poker_chips(interaction: discord.Interaction):
 # =========================
 
 class PokerBetView(discord.ui.View):
-    def __init__(self, channel_id: int):
-        super().__init__(timeout=120)
+    def __init__(self, channel_id: int, game_ref: dict):
+        super().__init__(timeout=300)
         self.channel_id = channel_id
+        self.game_ref = game_ref
 
     async def on_timeout(self):
-        if self.channel_id in poker_games:
+        current = poker_games.get(self.channel_id)
+        if current is self.game_ref:
             del poker_games[self.channel_id]
 
     def get_game(self):
@@ -1641,7 +1643,7 @@ class PokerBetView(discord.ui.View):
             f"""🃏 **{game['phase'].title()}**
         Board: {board}
         Pot: **{game['pot']}**""",
-            view=PokerBetView(self.channel_id)
+            view=PokerBetView(self.channel_id, game)
         )
 
     async def resolve_turn(self, interaction: discord.Interaction):
@@ -1799,7 +1801,7 @@ async def poker_start_rounds(interaction: discord.Interaction):
         f"""🂠 **Preflop betting started**
     Pot: **{game['pot']}**
     Current bet: **100**""",
-        view=PokerBetView(interaction.channel.id)
+        view=PokerBetView(interaction.channel.id, game)
     )
 
 bot.tree.add_command(poker_group)
