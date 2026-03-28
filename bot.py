@@ -1584,12 +1584,16 @@ class PokerBetView(discord.ui.View):
         for p in game["players"].values():
             p["bet"] = 0
             p["acted"] = False
+            game["turn_index"] = 0
 
         board = ' '.join(game['visible_community']) or 'No cards yet'
+        current_player = game["player_order"][game["turn_index"]]
+
         await interaction.channel.send(
             f"""🃏 **{game['phase'].title()}**
         Board: {board}
-        Pot: **{game['pot']}**""",
+        Pot: **{game['pot']}**
+        🎯 Turn: <@{current_player}>""",
             view=PokerBetView(self.channel_id, game)
         )
 
@@ -1798,7 +1802,7 @@ async def poker_start_rounds(interaction: discord.Interaction):
         except Exception:
             pass
 
-    player_order = list(game["players"].keys())
+    player_order = [int(uid) for uid in game["players"].keys()]
     game["turn_index"] = 0
     game["player_order"] = player_order
 
