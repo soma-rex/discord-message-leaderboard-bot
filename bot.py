@@ -110,6 +110,7 @@ leaderboard_channel = None
 cooldown = DEFAULT_COOLDOWN
 last_message_time = {}
 
+
 event_active = False
 event_end_time = None
 
@@ -1538,60 +1539,6 @@ async def poker_join(interaction: discord.Interaction):
         f"✅ {interaction.user.mention} joined the poker table.")
 
 
-@poker_group.command(name="start", description="Start the poker game")
-async def poker_start(interaction: discord.Interaction):
-    game = poker_games.get(interaction.channel.id)
-    if not game:
-        await interaction.response.send_message("No poker table here.", ephemeral=True)
-        return
-
-    if interaction.user.id != game["host"]:
-        await interaction.response.send_message("Only the host can start.", ephemeral=True)
-        return
-
-    if len(game["players"]) < 2:
-        await interaction.response.send_message("Need at least 2 players.", ephemeral=True)
-        return
-
-    game["active"] = True
-    game["phase"] = "showdown"
-    game["deck"] = build_deck()
-
-    for user_id in game["players"]:
-        game["players"][user_id]["cards"] = [game["deck"].pop(), game["deck"].pop()]
-
-    game["community"] = [game["deck"].pop() for _ in range(5)]
-
-    # DM cards
-    for user_id, data in game["players"].items():
-        user = await bot.fetch_user(user_id)
-        try:
-            await user.send(f"🃏 Your cards: {' '.join(data['cards'])}")
-        except Exception:
-            pass
-
-    board = ' '.join(game['community'])
-    await interaction.response.send_message(f"🂠 Community cards: {board}\nPot: **{game['pot']}**")
-
-    # decide winner instantly (MVP version)
-    best_user = None
-    best_score = (-1, -1)
-    for user_id, data in game["players"].items():
-        score = evaluate_hand(data["cards"] + game["community"])
-        if score > best_score:
-            best_score = score
-            best_user = user_id
-
-    winnings = game["pot"]
-    add_chips(best_user, winnings)
-    winner_user = await bot.fetch_user(best_user)
-
-    await interaction.followup.send(
-        f"🏆 Winner: **{winner_user.name}** wins **{winnings} chips**!")
-
-    del poker_games[interaction.channel.id]
-
-
 @poker_group.command(name="chips", description="Check your chip balance")
 async def poker_chips(interaction: discord.Interaction):
     chips = get_chips(interaction.user.id)
@@ -1669,6 +1616,15 @@ class PokerBetView(discord.ui.View):
     async def fold(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = self.get_game()
         player = game["players"].get(interaction.user.id)
+        current_player = game["player_order"][game["turn_index"]]
+
+        if interaction.user.id != current_player:
+            await interaction.response.send_message(
+                "It's not your turn.",
+                ephemeral=True
+            )
+            return
+
         if not player:
             await interaction.response.send_message("You're not in this hand.", ephemeral=True)
             return
@@ -1680,6 +1636,16 @@ class PokerBetView(discord.ui.View):
             return
         player["folded"] = True
         player["acted"] = True
+
+        alive_order = [
+            uid for uid in game["player_order"]
+            if not game["players"][uid]["folded"]
+        ]
+
+        current_pos = alive_order.index(interaction.user.id)
+        next_pos = (current_pos + 1) % len(alive_order)
+        game["turn_index"] = game["player_order"].index(alive_order[next_pos])
+
         await interaction.response.send_message("❌ You folded.", ephemeral=True)
         await self.resolve_turn(interaction)
 
@@ -1687,6 +1653,15 @@ class PokerBetView(discord.ui.View):
     async def call(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = self.get_game()
         player = game["players"].get(interaction.user.id)
+        current_player = game["player_order"][game["turn_index"]]
+
+        if interaction.user.id != current_player:
+            await interaction.response.send_message(
+                "It's not your turn.",
+                ephemeral=True
+            )
+            return
+
         if not player or player["folded"]:
             await interaction.response.send_message("You're not active in this hand.", ephemeral=True)
             return
@@ -1704,10 +1679,18 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message("Not enough chips to call.", ephemeral=True)
             return
 
-
         player["bet"] += amount
         game["pot"] += amount
         player["acted"] = True
+
+        alive_order = [
+            uid for uid in game["player_order"]
+            if not game["players"][uid]["folded"]
+        ]
+        current_pos = alive_order.index(interaction.user.id)
+        next_pos = (current_pos + 1) % len(alive_order)
+        game["turn_index"] = game["player_order"].index(alive_order[next_pos])
+
         await interaction.response.send_message(f"☎️ You called {amount}.", ephemeral=True)
         await self.resolve_turn(interaction)
 
@@ -1715,6 +1698,15 @@ class PokerBetView(discord.ui.View):
     async def raise_bet(self, interaction: discord.Interaction, button: discord.ui.Button):
         game = self.get_game()
         player = game["players"].get(interaction.user.id)
+        current_player = game["player_order"][game["turn_index"]]
+
+        if interaction.user.id != current_player:
+            await interaction.response.send_message(
+                "It's not your turn.",
+                ephemeral=True
+            )
+            return
+
         if not player or player["folded"]:
             await interaction.response.send_message("You're not active in this hand.", ephemeral=True)
             return
@@ -1740,6 +1732,15 @@ class PokerBetView(discord.ui.View):
             if uid != interaction.user.id and not p["folded"]:
                 p["acted"] = False
         player["acted"] = True
+
+        alive_order = [
+            uid for uid in game["player_order"]
+            if not game["players"][uid]["folded"]
+        ]
+
+        current_pos = alive_order.index(interaction.user.id)
+        next_pos = (current_pos + 1) % len(alive_order)
+        game["turn_index"] = game["player_order"].index(alive_order[next_pos])
 
         await interaction.response.send_message(f"📈 You raised to {target}.", ephemeral=True)
         await self.resolve_turn(interaction)
@@ -1797,13 +1798,19 @@ async def poker_start_rounds(interaction: discord.Interaction):
         except Exception:
             pass
 
+    player_order = list(game["players"].keys())
+    game["turn_index"] = 0
+    game["player_order"] = player_order
+
+    current_player = game["player_order"][game["turn_index"]]
+
     await interaction.response.send_message(
         f"""🂠 **Preflop betting started**
     Pot: **{game['pot']}**
-    Current bet: **100**""",
+    Current bet: **{game['current_bet']}**
+    🎯 Turn: <@{current_player}>""",
         view=PokerBetView(interaction.channel.id, game)
     )
-
 bot.tree.add_command(poker_group)
 
 bot.run(get_token())
