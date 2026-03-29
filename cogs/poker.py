@@ -206,16 +206,16 @@ class PokerBetView(discord.ui.View):
         return game, player, None
 
     def _advance_turn_index(self, game: dict, acted_uid: int):
-        alive_order = [
-            uid for uid in game["player_order"]
-            if not game["players"][uid]["folded"] and not game["players"][uid].get("all_in")
-        ]
-        if not alive_order:
-            return
-        if acted_uid in alive_order:
-            pos = alive_order.index(acted_uid)
-            next_pos = (pos + 1) % len(alive_order)
-            game["turn_index"] = game["player_order"].index(alive_order[next_pos])
+        n = len(game["player_order"])
+
+        for i in range(1, n + 1):
+            next_index = (game["turn_index"] + i) % n
+            uid = game["player_order"][next_index]
+            p = game["players"][uid]
+
+            if not p["folded"] and not p.get("all_in"):
+                game["turn_index"] = next_index
+                return
 
     async def advance_phase(self, channel: discord.TextChannel):
         game = self.get_game()
