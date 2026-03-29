@@ -131,45 +131,113 @@ def build_status(game: dict) -> str:
 # ─────────────────────────────────────────────
 # SHOWDOWN
 # ─────────────────────────────────────────────
+def build_side_pots(game: dict):
+    players = game["players"]
+
+    # Only players who put money in
+    contributions = {
+        uid: p["bet"]
+        for uid, p in players.items()
+        if p["bet"] > 0
+    }
+
+    pots = []
+
+    while contributions:
+        # smallest contribution (layer)
+        min_bet = min(contributions.values())
+
+        # players contributing to this pot
+        involved = list(contributions.keys())
+
+        pot_amount = min_bet * len(involved)
+
+        pots.append({
+            "amount": pot_amount,
+            "eligible": [uid for uid in involved if not players[uid]["folded"]]
+        })
+
+        # subtract layer
+        new_contributions = {}
+        for uid, amt in contributions.items():
+            remaining = amt - min_bet
+            if remaining > 0:
+                new_contributions[uid] = remaining
+
+        contributions = new_contributions
+
+    return pots
+
 async def finish_poker_game(channel: discord.TextChannel, game: dict, cog: "PokerCog"):
-    active = {uid: p for uid, p in game["players"].items() if not p["folded"]}
+    players = game["players"]
 
-    scored = []
-    for uid, data in active.items():
-        all_cards = data["cards"] + game["community"]
-        score = evaluate_hand(all_cards)
-        scored.append((score, uid, data["cards"]))
+    # build pots
+    pots = build_side_pots(game)
 
-    scored.sort(key=lambda x: x[0], reverse=True)
-    winner_score, winner_id, winner_cards = scored[0]
+    results_text = []
+    total_distributed = 0
 
-    cog.add_chips(winner_id, game["pot"])
+    for i, pot in enumerate(pots):
+        eligible = pot["eligible"]
 
-    try:
-        winner = await channel.guild.fetch_member(winner_id)
-        winner_name = winner.display_name
-    except Exception:
-        winner_name = f"<@{winner_id}>"
+        # score eligible players
+        scored = []
+        for uid in eligible:
+            data = players[uid]
+            all_cards = data["cards"] + game["community"]
+            score = evaluate_hand(all_cards)
+            scored.append((score, uid, data["cards"]))
 
+        # sort best first
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        best_score = scored[0][0]
+        winners = [s for s in scored if s[0] == best_score]
+
+        split_amount = pot["amount"] // len(winners)
+
+        for _, uid, _ in winners:
+            cog.add_chips(uid, split_amount)
+            total_distributed += split_amount
+
+        # names for display
+        winner_names = []
+        for _, uid, _ in winners:
+            try:
+                m = await channel.guild.fetch_member(uid)
+                winner_names.append(m.display_name)
+            except:
+                winner_names.append(f"<@{uid}>")
+
+        results_text.append(
+            f"Pot {i+1}: **{pot['amount']}** → {', '.join(winner_names)}"
+        )
+
+    # 🏆 build embed
     embed = discord.Embed(title="🏆 Showdown!", color=discord.Color.gold())
-    embed.add_field(
-        name=f"Winner: {winner_name}",
-        value=f"Hand: **{hand_name(winner_score)}** — {' '.join(winner_cards)}\nWins **{game['pot']}** chips!",
-        inline=False,
-    )
     embed.add_field(name="Board", value=" ".join(game["community"]), inline=False)
+    embed.add_field(name="Pot Results", value="\n".join(results_text), inline=False)
 
-    results = []
-    for score, uid, hole in scored:
+    # show all hands
+    hand_lines = []
+    for uid, data in players.items():
+        if data["folded"]:
+            continue
+        score = evaluate_hand(data["cards"] + game["community"])
         try:
             m = await channel.guild.fetch_member(uid)
-            n = m.display_name
-        except Exception:
-            n = f"<@{uid}>"
-        results.append(f"{n}: {' '.join(hole)} — **{hand_name(score)}**")
-    embed.add_field(name="All Hands", value="\n".join(results), inline=False)
+            name = m.display_name
+        except:
+            name = f"<@{uid}>"
+
+        hand_lines.append(
+            f"{name}: {' '.join(data['cards'])} — **{hand_name(score)}**"
+        )
+
+    embed.add_field(name="All Hands", value="\n".join(hand_lines), inline=False)
 
     await channel.send(embed=embed)
+
     if channel.id in cog.poker_games:
         del cog.poker_games[channel.id]
 
