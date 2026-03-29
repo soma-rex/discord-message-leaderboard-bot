@@ -178,9 +178,11 @@ async def finish_poker_game(channel: discord.TextChannel, game: dict, cog: "Poke
     total_distributed = 0
 
     for i, pot in enumerate(pots):
-        eligible = pot["eligible"]
+        eligible = [uid for uid in pot["eligible"] if not players[uid]["folded"]]
 
-        # score eligible players
+        if not eligible:
+            continue
+
         scored = []
         for uid in eligible:
             data = players[uid]
@@ -188,7 +190,6 @@ async def finish_poker_game(channel: discord.TextChannel, game: dict, cog: "Poke
             score = evaluate_hand(all_cards)
             scored.append((score, uid, data["cards"]))
 
-        # sort best first
         scored.sort(key=lambda x: x[0], reverse=True)
 
         best_score = scored[0][0]
@@ -198,7 +199,11 @@ async def finish_poker_game(channel: discord.TextChannel, game: dict, cog: "Poke
 
         for _, uid, _ in winners:
             cog.add_chips(uid, split_amount)
-            total_distributed += split_amount
+
+        # FIX remainder
+        remainder = pot["amount"] % len(winners)
+        if remainder > 0:
+            cog.add_chips(winners[0][1], remainder)
 
         # names for display
         winner_names = []
