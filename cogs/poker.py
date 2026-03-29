@@ -548,22 +548,33 @@ class PokerCog(commands.Cog, name="Poker"):
         game["phase"] = "preflop"
         game["current_bet"] = 0
 
+        # 🔥 ACKNOWLEDGE FIRST
+        await interaction.response.defer()
+
+        # 🎴 DEAL CARDS
         for user_id, p in game["players"].items():
             p.update({
                 "cards": [deck.pop(), deck.pop()],
                 "folded": False, "bet": 0, "acted": False, "all_in": False,
             })
+
             try:
                 member = await interaction.guild.fetch_member(user_id)
                 await member.send(f"🃏 Your hole cards: **{' '.join(p['cards'])}**")
             except Exception:
                 pass
 
+        # 🎯 SET TURN
         game["player_order"] = list(game["players"].keys())
         game["turn_index"] = 0
 
+        # 🃏 SEND GAME MESSAGE AFTER
         view = PokerBetView(interaction.channel.id, game, self)
-        await interaction.response.send_message(build_status(game), view=view)
+
+        await interaction.followup.send(
+            build_status(game),
+            view=view
+        )
 
     @poker_group.command(name="end", description="Force-end the current game (admin)")
     @app_commands.checks.has_permissions(administrator=True)

@@ -106,7 +106,7 @@ bot.cursor = cursor
 
 # ✅ Load cogs
 async def setup_hook():
-    await bot.load_extension("cogs.poker_cog")
+    await bot.load_extension("cogs.poker")
 
 bot.setup_hook = setup_hook
 
