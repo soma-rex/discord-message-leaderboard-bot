@@ -244,9 +244,19 @@ class PokerBetView(discord.ui.View):
 
         alive = [p for p in game["players"].values() if not p["folded"]]
         can_act = [p for p in alive if not p.get("all_in")]
+
+        # 🔥 FORCE SHOWDOWN IF NO ONE CAN ACT
+        if len(can_act) == 0:
+            game["visible_community"] = game["community"]  # reveal all cards
+            game["phase"] = "showdown"
+            await finish_poker_game(channel, game, self.cog)
+            return
+
         if len(can_act) <= 1:
             await self.advance_phase(channel)
             return
+
+
 
         alive_order = [uid for uid in game["player_order"] if not game["players"][uid]["folded"]]
         game["turn_index"] = game["player_order"].index(alive_order[0])
