@@ -27,6 +27,8 @@ HAND_NAMES = {
     0: "High Card",
 }
 
+def is_owner(interaction: discord.Interaction) -> bool:
+    return interaction.user.id == 720550790036455444
 
 # ─────────────────────────────────────────────
 # DECK HELPERS
@@ -526,7 +528,7 @@ class PokerCog(commands.Cog, name="Poker"):
         await interaction.response.send_message(f"💰 You have **{chips} chips**.", ephemeral=True)
 
     @poker_group.command(name="setchips", description="Add or remove chips (admin)")
-    @app_commands.is_owner()
+    @app_commands.check(is_owner)
     async def poker_setchips(self, interaction: discord.Interaction, user: discord.Member, amount: int):
         self.ensure_chips(user.id)
         self.cursor.execute(
