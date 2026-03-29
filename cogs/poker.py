@@ -136,9 +136,9 @@ def build_side_pots(game: dict):
 
     # Only players who put money in
     contributions = {
-        uid: p["bet"]
+        uid: p["total_bet"]
         for uid, p in players.items()
-        if p["bet"] > 0
+        if p["total_bet"] > 0
     }
 
     pots = []
@@ -419,6 +419,7 @@ class PokerBetView(discord.ui.View):
             player["all_in"] = True
         self.cog.remove_chips(interaction.user.id, amount)
         player["bet"] += amount
+        player["total_bet"] += amount
         game["pot"] += amount
         player["acted"] = True
         self._advance_turn_index(game, interaction.user.id)
@@ -434,12 +435,21 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message(err, ephemeral=True)
             return
         target = game["current_bet"] + 100
-        amount = target - player["bet"]
+        amount = game["current_bet"] - player["bet"]
+
+        if amount <= 0:
+            await interaction.response.send_message("Nothing to call — use Check.", ephemeral=True)
+            return
+
+        if not self.cog.remove_chips(interaction.user.id, amount):
+            await interaction.response.send_message("Error removing chips.", ephemeral=True)
+            return
         if not self.cog.remove_chips(interaction.user.id, amount):
             await interaction.response.send_message("Not enough chips — use All-In.", ephemeral=True)
             return
         game["current_bet"] = target
         player["bet"] = target
+        player["total_bet"] += amount
         game["pot"] += amount
         player["acted"] = True
         for uid, p in game["players"].items():
@@ -462,6 +472,7 @@ class PokerBetView(discord.ui.View):
             return
         self.cog.remove_chips(interaction.user.id, chips)
         player["bet"] += chips
+        player["total_bet"] += chips
         game["pot"] += chips
         player["all_in"] = True
         player["acted"] = True
@@ -588,7 +599,7 @@ class PokerCog(commands.Cog, name="Poker"):
             await interaction.response.send_message(f"Not enough chips (need **{buy_in}**).", ephemeral=True)
             return
         game["players"][interaction.user.id] = {
-            "cards": [], "folded": False, "bet": 0, "acted": False, "all_in": False
+            "cards": [], "folded": False, "bet": 0, "acted": False,"total_bet": 0, "all_in": False
         }
         game["pot"] += buy_in
         await interaction.response.send_message(
@@ -640,7 +651,7 @@ class PokerCog(commands.Cog, name="Poker"):
         for user_id, p in game["players"].items():
             p.update({
                 "cards": [deck.pop(), deck.pop()],
-                "folded": False, "bet": 0, "acted": False, "all_in": False,
+                "folded": False, "bet": 0, "acted": False,"total_bet": 0, "all_in": False,
             })
 
             try:
