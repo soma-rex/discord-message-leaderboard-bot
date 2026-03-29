@@ -526,7 +526,7 @@ class PokerCog(commands.Cog, name="Poker"):
         await interaction.response.send_message(f"💰 You have **{chips} chips**.", ephemeral=True)
 
     @poker_group.command(name="setchips", description="Add or remove chips (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.is_owner()
     async def poker_setchips(self, interaction: discord.Interaction, user: discord.Member, amount: int):
         self.ensure_chips(user.id)
         self.cursor.execute(
