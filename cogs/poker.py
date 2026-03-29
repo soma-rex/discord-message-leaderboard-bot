@@ -22,6 +22,21 @@ SUITS      = ["♠", "♥", "♦", "♣"]
 RANKS      = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
 RANK_VALUE = {r: i for i, r in enumerate(RANKS, start=2)}
 
+SUIT_EMOJI = {
+    "♠": SPADE_EMOJI,
+    "♥": HEART_EMOJI,
+    "♦": DIAM_EMOJI,
+    "♣": CLUB_EMOJI,
+}
+
+def format_card(card: str) -> str:
+    rank = card[:-1]
+    suit = card[-1]
+    return f"**{rank}**{SUIT_EMOJI.get(suit, suit)}"
+
+def format_cards(cards: list) -> str:
+    return "  ".join(format_card(c) for c in cards)
+
 HAND_NAMES = {
     8: "Straight Flush",
     7: "Four of a Kind",
@@ -261,8 +276,54 @@ class PokerBetView(discord.ui.View):
         self.cog        = cog
 
     async def on_timeout(self):
-        if self.channel_id in self.cog.poker_games:
-            del self.cog.poker_games[self.channel_id]
+        game = self.cog.poker_games.get(self.channel_id)
+        if not game:
+            return
+        # Auto-fold the slow player and continue
+        current_uid = game["player_order"][game["turn_index"]]
+        player = game["players"].get(current_uid)
+        if player and not player["folded"]:
+            player["folded"] = True
+            player["acted"]  = True
+        # Find next alive player
+        n = len(game["player_order"])
+        for i in range(1, n + 1):
+            nxt = (game["turn_index"] + i) % n
+            uid = game["player_order"][nxt]
+            p   = game["players"][uid]
+            if not p["folded"] and not p.get("all_in"):
+                game["turn_index"] = nxt
+                break
+        try:
+            channel = self.cog.bot.get_channel(self.channel_id)
+            if not channel:
+                return
+            alive = [uid for uid, p in game["players"].items() if not p["folded"]]
+            if len(alive) <= 1:
+                if alive:
+                    winner_id = alive[0]
+                    self.cog.add_chips(winner_id, game["pot"])
+                    embed = discord.Embed(
+                        title="🏆  Game over (timeout)",
+                        description=f"<@{current_uid}> took too long and was folded.\n<@{winner_id}> wins **{game['pot']}** {CHIP_EMOJI}!",
+                        color=discord.Color.gold(),
+                    )
+                    await channel.send(embed=embed)
+                if self.channel_id in self.cog.poker_games:
+                    del self.cog.poker_games[self.channel_id]
+                return
+            embed = discord.Embed(
+                description=f"⏱️  <@{current_uid}> took too long and was auto-folded.",
+                color=discord.Color.orange(),
+            )
+            await channel.send(embed=embed)
+            next_uid = game["player_order"][game["turn_index"]]
+            new_view = PokerBetView(self.channel_id, game, self.cog)
+            game_embed = build_game_embed(game)
+            await channel.send(f"<@{next_uid}>", embed=game_embed, view=new_view)
+        except Exception:
+            if self.channel_id in self.cog.poker_games:
+                del self.cog.poker_games[self.channel_id]
 
     def get_game(self):
         return self.cog.poker_games.get(self.channel_id)
@@ -704,7 +765,7 @@ class PokerCog(commands.Cog, name="Poker"):
             try:
                 member = await interaction.guild.fetch_member(user_id)
                 await member.send(
-                    f"🃏  Your hole cards: **{' '.join(p['cards'])}**\n"
+                    f"🃏  Your hole cards:\n{format_cards(p['cards'])}\n"
                     f"*(Keep these secret!)*"
                 )
             except Exception:
