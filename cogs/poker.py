@@ -375,6 +375,13 @@ class PokerBetView(discord.ui.View):
         if nxt is not None:
             game["turn_index"] = nxt
 
+    async def _announce_action(self, channel: discord.TextChannel, user: discord.Member, action: str):
+        embed = discord.Embed(
+            description=f"**{user.display_name}** {action}",
+            color=discord.Color.dark_grey(),
+        )
+        await channel.send(embed=embed)
+
     async def advance_phase(self, channel: discord.TextChannel):
         game = self.get_game()
         if not game:
@@ -463,6 +470,7 @@ class PokerBetView(discord.ui.View):
         player["acted"]  = True
         self._advance_turn_index(game)
         await interaction.response.send_message("❌ You folded.", ephemeral=True)
+        await self._announce_action(interaction.channel, interaction.user, "folded.")
         await self.resolve_turn(interaction.channel)
 
     @discord.ui.button(label="Check", style=discord.ButtonStyle.secondary, row=0)
@@ -480,6 +488,7 @@ class PokerBetView(discord.ui.View):
         player["acted"] = True
         self._advance_turn_index(game)
         await interaction.response.send_message("✅ Checked.", ephemeral=True)
+        await self._announce_action(interaction.channel, interaction.user, "checked.")
         await self.resolve_turn(interaction.channel)
 
     @discord.ui.button(label="Call", style=discord.ButtonStyle.primary, row=0)
@@ -500,6 +509,7 @@ class PokerBetView(discord.ui.View):
             player["acted"]  = True
             self._advance_turn_index(game)
             await interaction.response.send_message("💥 You're all-in (no chips left)!", ephemeral=True)
+            await self._announce_action(interaction.channel, interaction.user, "is **all-in**.")
             await self.resolve_turn(interaction.channel)
             return
 
@@ -516,6 +526,14 @@ class PokerBetView(discord.ui.View):
 
         suffix = "  *(All-in!)*" if player.get("all_in") else ""
         await interaction.response.send_message(f"☎️ Called **{amount}**.{suffix}", ephemeral=True)
+        if player.get("all_in"):
+            await self._announce_action(
+                interaction.channel,
+                interaction.user,
+                f"called **{amount}** and is now **all-in**.",
+            )
+        else:
+            await self._announce_action(interaction.channel, interaction.user, f"called **{amount}**.")
         await self.resolve_turn(interaction.channel)
 
     @discord.ui.button(label="Raise +100", style=discord.ButtonStyle.success, row=1)
@@ -542,6 +560,7 @@ class PokerBetView(discord.ui.View):
                 p["acted"] = False
         self._advance_turn_index(game)
         await interaction.response.send_message(f"📈 Raised to **{target}**.", ephemeral=True)
+        await self._announce_action(interaction.channel, interaction.user, f"raised to **{target}**.")
         await self.resolve_turn(interaction.channel)
 
     @discord.ui.button(label="All-In 💥", style=discord.ButtonStyle.danger, row=1)
@@ -566,6 +585,14 @@ class PokerBetView(discord.ui.View):
         self._advance_turn_index(game)
         msg = f"💥 All-in with **{chips}** chips!" if chips > 0 else "💥 You're all-in!"
         await interaction.response.send_message(msg, ephemeral=True)
+        if chips > 0:
+            await self._announce_action(
+                interaction.channel,
+                interaction.user,
+                f"went **all-in** with **{chips}** chips.",
+            )
+        else:
+            await self._announce_action(interaction.channel, interaction.user, "is **all-in**.")
         await self.resolve_turn(interaction.channel)
 
     @discord.ui.button(label="👥 Players", style=discord.ButtonStyle.secondary, row=1)
@@ -626,7 +653,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         embed.set_footer(text=str(interaction.user), icon_url=interaction.user.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
-    @poker_group.command(name="chips", description="Check your chip balance")
+    @app_commands.command(name="chips", description="Check your chip balance")
     async def poker_chips(self, interaction: discord.Interaction):
         chips = self.get_chips(interaction.user.id)
         embed = discord.Embed(title=f"{CHIP_EMOJI}  Chip Balance", color=discord.Color.gold())

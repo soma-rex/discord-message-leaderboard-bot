@@ -16,7 +16,7 @@ HELP_PAGES = {
         ),
         "fields": [
             ("Help", "`/help` `;help`", False),
-            ("Games", "`/daily` `/poker chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
+            ("Games", "`/daily` `/chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
             ("Fun", "`/roast` `/recommend` plus prefix tools like `;bomb`", False),
             ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction`", False),
@@ -26,7 +26,7 @@ HELP_PAGES = {
         "title": "Help - Games",
         "description": "Casino and competition-related commands.",
         "fields": [
-            ("Shared economy", "`/daily` Claim your shared daily chips\n`/poker chips` Check your chip balance", False),
+            ("Shared economy", "`/daily` Claim your shared daily chips\n`/chips` Check your chip balance", False),
             ("Poker", "`/poker create` `join` `start` `chips` `setchips` `end`", False),
             ("Blackjack", "`/blackjack play <bet>`", False),
             ("Roulette", "`/roulette spin <bet_type> <bet>`\n`/roulette table`", False),
