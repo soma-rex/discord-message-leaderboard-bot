@@ -95,6 +95,7 @@ bot = commands.Bot(
     command_prefix=commands.when_mentioned_or(";", "&"),
     intents=intents,
 )
+bot.help_command = None
 
 # Expose DB and groq on bot so cogs can access them
 bot.conn = conn
@@ -102,6 +103,7 @@ bot.cursor = cursor
 bot.groq_client = groq_client
 
 async def setup_hook():
+    await bot.load_extension("cogs.help_cog")
     await bot.load_extension("cogs.poker")
     await bot.load_extension("cogs.blackjack")
     await bot.load_extension("cogs.roulette")
