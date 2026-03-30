@@ -10,28 +10,26 @@ HELP_PAGES = {
     "overview": {
         "title": "Bot Help",
         "description": (
-            "Use the buttons below to browse commands.\n"
-            "Prefix commands use `;` or `&`.\n"
-            "Slash commands use `/`."
+            "Browse commands with the buttons below.\n"
+            "Prefix commands use `;` or `&`. Slash commands use `/`."
         ),
         "fields": [
             ("Help", "`/help` `;help`", False),
             ("Games", "`/daily` `/chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
-            ("Fun", "`/roast` `/recommend` plus prefix tools like `;bomb`", False),
+            ("Fun", "`/roast` `/recommend` `;bomb` `;roast` `;recommend`", False),
             ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction`", False),
         ],
     },
     "games": {
         "title": "Help - Games",
-        "description": "Casino and competition-related commands.",
+        "description": "Casino commands and chip economy.",
         "fields": [
             ("Shared economy", "`/daily` Claim your shared daily chips\n`/chips` Check your chip balance", False),
-            ("Poker", "`/poker create` `join` `start` `chips` `setchips` `end`", False),
+            ("Poker", "`/poker create` `join` `start` `setchips` `end`", False),
             ("Blackjack", "`/blackjack play <bet>`", False),
             ("Roulette", "`/roulette spin <bet_type> <bet>`\n`/roulette table`", False),
             ("Slots", "`/slots spin <bet>`\n`/slots paytable`", False),
-            ("Rumble", "Automatic rumble tracking with an `Am I Alive?` button when a rumble is detected.", False),
         ],
     },
     "stats": {
@@ -45,23 +43,22 @@ HELP_PAGES = {
     },
     "fun": {
         "title": "Help - Fun",
-        "description": "AI and fun commands.",
+        "description": "Fun and utility commands.",
         "fields": [
             ("Slash commands", "`/roast <user>`\n`/recommend <prompt>`", False),
             ("Prefix commands", "`;roast <user>`\n`;recommend <prompt>`", False),
             ("Bomb system", "`;bomb <user>`\n`;bombset <user> <seconds>`\n`;defuse <user>`", False),
             ("Owner tools", "`;pingstorm <user>`\n`;eval <code>`", False),
-            ("AI chat", "Mention the bot or reply to one of its messages to chat.", False),
         ],
     },
     "admin": {
         "title": "Help - Admin",
         "description": "Administrative and moderation commands.",
         "fields": [
-            ("Admin group", "`/admin resetuser`\n`/admin resetall`\n`/admin debug`\n`/admin setchips`", False),
+            ("Admin group", "`/admin resetuser`\n`/admin resetall`\n`/admin debug`", False),
             ("Standalone admin", "`/findreaction`", False),
             ("Poker admin", "`/poker setchips`\n`/poker end`", False),
-            ("Permissions", "Most commands on this page require administrator permissions. Some prefix tools are owner-only.", False),
+            ("Permissions", "Most commands here require administrator permissions.", False),
         ],
     },
     "prefix": {

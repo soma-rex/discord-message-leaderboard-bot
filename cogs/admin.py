@@ -54,28 +54,6 @@ class AdminCog(commands.Cog, name="Admin"):
                         value=f"{interaction.channel.name}\nID: {interaction.channel.id}", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @admin_group.command(name="setchips", description="Add or remove chips for a user")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def admin_setchips(self, interaction: discord.Interaction, user: discord.Member, amount: int):
-        self.cursor.execute(
-            "INSERT OR IGNORE INTO poker_chips (user_id, chips, last_daily) VALUES (?, 1000, 0)",
-            (user.id,)
-        )
-        self.cursor.execute(
-            "UPDATE poker_chips SET chips = chips + ? WHERE user_id = ?", (amount, user.id)
-        )
-        self.conn.commit()
-        self.cursor.execute("SELECT chips FROM poker_chips WHERE user_id = ?", (user.id,))
-        total = self.cursor.fetchone()[0]
-        embed = discord.Embed(
-            title="<:poker_chip:1487837444685430896>  Chips updated",
-            color=discord.Color.green() if amount >= 0 else discord.Color.red(),
-        )
-        embed.add_field(name="Player",      value=user.mention,      inline=True)
-        embed.add_field(name="Change",      value=f"**{amount:+}**", inline=True)
-        embed.add_field(name="New balance", value=f"**{total:,}**",  inline=True)
-        await interaction.response.send_message(embed=embed)
-
     @app_commands.command(name="findreaction", description="Find messages with a specific reaction")
     @app_commands.checks.has_permissions(administrator=True)
     async def find_reaction(

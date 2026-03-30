@@ -9,14 +9,14 @@ from discord.ext import commands
 
 from .chips import ChipsMixin, CHIP_EMOJI
 
-SLOT_DIAMOND = "<:slot_diamond:SLOT_DIAMOND_ID>"
-SLOT_SEVEN = "<:slot_seven:SLOT_SEVEN_ID>"
-SLOT_CHERRY = "<:slot_cherry:SLOT_CHERRY_ID>"
-SLOT_LEMON = "<:slot_lemon:SLOT_LEMON_ID>"
-SLOT_MELON = "<:slot_melon:SLOT_MELON_ID>"
-SLOT_STAR = "<:slot_star:SLOT_STAR_ID>"
-SLOT_BELL = "<:slot_bell:SLOT_BELL_ID>"
-SLOT_GRAPES = "<:slot_grapes:SLOT_GRAPES_ID>"
+SLOT_DIAMOND = "<:slotsdiamond:1488219289973428414>"
+SLOT_SEVEN = "<:slotsseven:1488219287800905738>"
+SLOT_CHERRY = "<:slotscherry:1488219285850689586>"
+SLOT_LEMON = "<:slotslemon:1488219283526914099>"
+SLOT_MELON = "<:slotsmelon:1488219282134536212>"
+SLOT_STAR = "<:slotstar:1488219280054161589>"
+SLOT_BELL = "<:slotsbell:1488219278409859162>"
+SLOT_GRAPES = "<:slotsgrapes:1488219276287672652>"
 
 WIN_EMOJI = "<a:check:1479904904205041694>"
 LOSE_EMOJI = "<a:cross:1479904917702578306>"
