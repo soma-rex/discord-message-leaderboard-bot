@@ -110,7 +110,7 @@ class SlotsCog(commands.Cog, ChipsMixin, name="Slots"):
         embed.add_field(name="Result", value=result_text, inline=False)
         embed.add_field(name=f"{CHIP_EMOJI} Bet", value=f"**{bet:,}**", inline=True)
         embed.add_field(name="Balance", value=f"**{balance:,}**", inline=True)
-        embed.set_footer(text=f"@{interaction.user.display_name}")
+        embed.set_footer(text=f"{interaction.user.display_name}",icon_url=interaction.user.display_avatar.url)
         await interaction.followup.send(embed=embed)
 
     @slots_group.command(name="paytable", description="Show symbol payouts")
