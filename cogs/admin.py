@@ -2,6 +2,7 @@
 cogs/admin.py  –  Admin commands: resetuser, resetall, debug, findreaction
 """
 from collections import defaultdict, deque
+import time
 
 import discord
 from discord import app_commands
@@ -99,12 +100,17 @@ class AdminCog(commands.Cog, name="Admin"):
 
         guild_id = payload.guild_id or "@me"
         jump_url = f"https://discord.com/channels/{guild_id}/{payload.channel_id}/{payload.message_id}"
-        self.recent_reactions[payload.channel_id].append(
+        now = time.time()
+        recent = self.recent_reactions[payload.channel_id]
+        while recent and now - recent[0]["timestamp"] > 60:
+            recent.popleft()
+        recent.append(
             {
                 "user_id": payload.user_id,
                 "emoji": str(payload.emoji),
                 "message_id": payload.message_id,
                 "jump_url": jump_url,
+                "timestamp": now,
             }
         )
 
@@ -112,8 +118,12 @@ class AdminCog(commands.Cog, name="Admin"):
     @commands.has_permissions(administrator=True)
     async def recent_reactor(self, ctx: commands.Context):
         recent = self.recent_reactions.get(ctx.channel.id)
+        now = time.time()
+        while recent and now - recent[0]["timestamp"] > 60:
+            recent.popleft()
+
         if not recent:
-            await ctx.send("No recent non-bot reactions tracked in this channel yet.")
+            await ctx.send("No non-bot reactions were added in this channel during the last minute.")
             return
 
         latest = recent[-1]
