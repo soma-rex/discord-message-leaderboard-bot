@@ -5,6 +5,7 @@ import ast
 import asyncio
 from contextlib import redirect_stdout
 import io
+from pathlib import Path
 import textwrap
 import time
 import random
@@ -16,6 +17,7 @@ from groq import Groq
 
 
 BOMB_REQUIRED_ROLE_ID = 996368478216929371
+APRIL_FOOLS_IMAGE_PATH = Path("assets") / "april_fools.png"
 LURKING_RESPONSE_EMOJIS = [
     "<a:cutelurk2:1488518162923393155>",
     "<a:cutelurk:1488518166006202479>",
@@ -110,6 +112,15 @@ class FunCog(commands.Cog, name="Fun"):
             del self.bombed_users[user_id]
         return False
 
+    def _build_april_fools_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="APRIL FOOLS",
+            description="# APRIL FOOLS\n## APRIL FOOLS\n### APRIL FOOLS",
+            color=discord.Color.from_rgb(76, 175, 255),
+        )
+        embed.set_footer(text="Pranked.")
+        return embed
+
     # ─────────────────────────────────────────
     # PREFIX COMMANDS
     # ─────────────────────────────────────────
@@ -173,6 +184,19 @@ class FunCog(commands.Cog, name="Fun"):
             await ctx.send(result)
         except Exception as e:
             await ctx.send(f"Error: {e}")
+
+    @commands.command(name="fool")
+    async def fool_prefix(self, ctx: commands.Context):
+        embed = self._build_april_fools_embed()
+        if APRIL_FOOLS_IMAGE_PATH.exists():
+            file = discord.File(APRIL_FOOLS_IMAGE_PATH, filename="april_fools.png")
+            embed.set_image(url="attachment://april_fools.png")
+            await ctx.send(embed=embed, file=file)
+            return
+        await ctx.send(
+            f"{ctx.author.mention} add your image at `{APRIL_FOOLS_IMAGE_PATH.as_posix()}` to show it in the embed.",
+            embed=embed,
+        )
 
     @commands.command(name="eval")
     @commands.is_owner()
@@ -244,6 +268,20 @@ class FunCog(commands.Cog, name="Fun"):
             await interaction.followup.send(result)
         except Exception as e:
             await interaction.followup.send(f"Error: {e}")
+
+    @app_commands.command(name="fool", description="Send a giant April Fools embed")
+    async def fool_slash(self, interaction: discord.Interaction):
+        embed = self._build_april_fools_embed()
+        if APRIL_FOOLS_IMAGE_PATH.exists():
+            file = discord.File(APRIL_FOOLS_IMAGE_PATH, filename="april_fools.png")
+            embed.set_image(url="attachment://april_fools.png")
+            await interaction.response.send_message(embed=embed, file=file)
+            return
+        await interaction.response.send_message(
+            f"Add your image at `{APRIL_FOOLS_IMAGE_PATH.as_posix()}` to show it in the embed.",
+            embed=embed,
+            ephemeral=True,
+        )
 
     @app_commands.command(name="lurking", description="Ask who's lurking.")
     async def lurking_slash(self, interaction: discord.Interaction):
