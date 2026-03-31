@@ -18,6 +18,7 @@ HELP_PAGES = {
             ("Games", "`/daily` `/chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
             ("Fun", "`/roast` `/recommend` `/lurking` `;bomb` `;roast` `;recommend`", False),
+            ("Staff", "`/register` `/weeklyprogress` `/staffprogress` `/staff break` `/staff endbreak`", False),
             ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction`", False),
         ],
     },
@@ -61,12 +62,24 @@ HELP_PAGES = {
             ("Permissions", "Most commands here require administrator permissions.", False),
         ],
     },
+    "staff": {
+        "title": "Help - Staff",
+        "description": "Staff tracking and break management commands.",
+        "fields": [
+            ("Register", "`/register` Register yourself for staff tracking", False),
+            ("Personal progress", "`/weeklyprogress`\n`;weeklyprogress`\n`;wp`", False),
+            ("View others", "`/weeklyprogress <user>`\n`;weeklyprogress <user>`\n`;wp <user>`", False),
+            ("Overview", "`/staffprogress`\n`;staffprogress`", False),
+            ("Break tools", "`/staff break <user> [days]`\n`/staff endbreak <user>`", False),
+        ],
+    },
     "prefix": {
         "title": "Help - Prefix Commands",
         "description": "Commands available with `;` or `&`.",
         "fields": [
             ("General", "`;help`", False),
             ("Fun", "`;roast` `;recommend`", False),
+            ("Staff", "`;weeklyprogress` `;wp` `;staffprogress`", False),
             ("Bomb", "`;bomb` `;bombset` `;defuse`", False),
             ("Owner-only", "`;pingstorm` `;eval`", False),
         ],
@@ -126,11 +139,15 @@ class HelpView(discord.ui.View):
     async def fun(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "fun")
 
-    @discord.ui.button(label="Admin", style=discord.ButtonStyle.secondary, custom_id="admin", row=1)
+    @discord.ui.button(label="Staff", style=discord.ButtonStyle.secondary, custom_id="staff", row=1)
+    async def staff(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._switch_page(interaction, "staff")
+
+    @discord.ui.button(label="Admin", style=discord.ButtonStyle.secondary, custom_id="admin", row=2)
     async def admin(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "admin")
 
-    @discord.ui.button(label="Prefix", style=discord.ButtonStyle.secondary, custom_id="prefix", row=1)
+    @discord.ui.button(label="Prefix", style=discord.ButtonStyle.secondary, custom_id="prefix", row=2)
     async def prefix(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._switch_page(interaction, "prefix")
 

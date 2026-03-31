@@ -21,6 +21,7 @@ EVENT_MANAGER_ROLE_ID = 996372072961937450
 MODERATOR_ROLE_ID = 996371883807219803
 TRIAL_MODERATOR_ROLE_ID = 996371928493330534
 TOUCHING_GRASS_ROLE_ID = 1128285153135955978
+BASIC_STAFF_ROLE_ID = 996372307528384583
 
 GMAN_TRIGGER_ROLE_IDS = {
     1107542167746007080,
@@ -39,6 +40,7 @@ ROLE_PRIORITY = (
     ("tmod", TRIAL_MODERATOR_ROLE_ID),
 )
 STAFF_ROLE_IDS = {role_id for _, role_id in ROLE_PRIORITY}
+STAFF_ROLE_IDS.add(BASIC_STAFF_ROLE_ID)
 STAFF_ROLE_IDS.add(TOUCHING_GRASS_ROLE_ID)
 PREFIXES = (";", "&")
 
@@ -242,18 +244,17 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     def _sync_member_registration(self, member: discord.Member):
         row = self._registered_row(member.id)
-        current_roles = self._resolve_role_types(member)
-        if row and row[1]:
-            return row
-        if not current_roles:
+        if not row:
             return None
+        if row[1]:
+            return row
+
+        current_roles = self._resolve_role_types(member)
+        if not current_roles:
+            return row
         self.cursor.execute(
-            """
-            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles)
-            VALUES (?, ?, 0, NULL)
-            ON CONFLICT(user_id) DO UPDATE SET role_type = excluded.role_type
-            """,
-            (member.id, self._serialize_role_types(current_roles)),
+            "UPDATE staff_users SET role_type = ? WHERE user_id = ?",
+            (self._serialize_role_types(current_roles), member.id),
         )
         self.conn.commit()
         return self._registered_row(member.id)
@@ -264,6 +265,79 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             if member:
                 return member.display_name
         return fallback or f"User {user_id}"
+
+    def _is_registered(self, user_id: int) -> bool:
+        return self._registered_row(user_id) is not None
+
+    def _can_use_staff_commands(self, member: discord.Member) -> bool:
+        return self._is_registered(member.id) or member.guild_permissions.administrator
+
+    def _not_registered_message(self) -> str:
+        return "You can't use this command because you're not registered. Use `/register` first."
+
+    def _build_staff_overview_embed(self, guild: discord.Guild) -> discord.Embed:
+        active_week = self._config_get("active_week_id", self._current_week_id())
+        self.cursor.execute(
+            """
+            SELECT user_id, role_type, is_on_break
+            FROM staff_users
+            ORDER BY role_type, user_id
+            """
+        )
+        staff_rows = self.cursor.fetchall()
+        self.cursor.execute(
+            """
+            SELECT user_id, gman_count, eman_count, mod_message_count
+            FROM weekly_logs
+            WHERE week_id = ?
+            """,
+            (active_week,),
+        )
+        log_map = {row[0]: row[1:] for row in self.cursor.fetchall()}
+
+        sections: dict[str, list[str]] = {"gman": [], "eman": [], "mod": []}
+        for user_id, role_type_value, is_on_break in staff_rows:
+            role_types = self._parse_role_types(role_type_value)
+            if not role_types:
+                continue
+            counts = log_map.get(user_id)
+            base_label = self._display_name(guild, user_id)
+
+            if "gman" in role_types:
+                current = self._count_for(counts, "gman")
+                sections["gman"].append(
+                    f"{base_label:<18} | {self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{PING_REQUIREMENT}'})"
+                )
+
+            if "eman" in role_types:
+                current = self._count_for(counts, "eman")
+                sections["eman"].append(
+                    f"{base_label:<18} | {self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{PING_REQUIREMENT}'})"
+                )
+
+            if {"mod", "tmod"} & set(role_types):
+                current = self._count_for(counts, "mod")
+                mod_label = f"{base_label} [Trial]" if "tmod" in role_types and "mod" not in role_types else base_label
+                sections["mod"].append(
+                    f"{mod_label:<18} | {self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{MOD_MESSAGE_REQUIREMENT}'})"
+                )
+
+        embed = discord.Embed(
+            title="Registered Staff Progress",
+            description=f"Week: **{self._week_label(active_week)}**",
+            color=discord.Color.teal(),
+        )
+        for role_type in ("gman", "eman", "mod"):
+            embed.add_field(
+                name=self._section_title(role_type),
+                value="\n".join(sections[role_type]) or "No registered staff",
+                inline=False,
+            )
+        embed.set_footer(text="Registered staff only • 🟩 complete • 🟥 not met • 🟦 break")
+        return embed
 
     async def _restore_expired_breaks(self):
         now = datetime.now(timezone.utc)
@@ -413,7 +487,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         row = self._registered_row(after.id)
-        if row and row[1]:
+        if not row or row[1]:
             return
         role_types = self._resolve_role_types(after)
         if role_types:
@@ -510,6 +584,9 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         interaction: discord.Interaction,
         user: discord.Member | None = None,
     ):
+        if not self._can_use_staff_commands(interaction.user):
+            await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
+            return
         target = user or interaction.user
         embed = self._build_progress_embed(target)
         if embed is None:
@@ -519,12 +596,25 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     @commands.command(name="weeklyprogress", aliases=["wp"])
     async def weekly_progress_prefix(self, ctx: commands.Context, user: discord.Member | None = None):
+        if not self._can_use_staff_commands(ctx.author):
+            await ctx.send(self._not_registered_message())
+            return
         target = user or ctx.author
         embed = self._build_progress_embed(target)
         if embed is None:
             await ctx.send("That user is not registered in the staff logger.")
             return
         await ctx.send(embed=embed)
+
+    @app_commands.command(name="staffprogress", description="Show all registered staff progress")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def staff_progress_slash(self, interaction: discord.Interaction):
+        await interaction.response.send_message(embed=self._build_staff_overview_embed(interaction.guild), ephemeral=True)
+
+    @commands.command(name="staffprogress")
+    @commands.has_permissions(administrator=True)
+    async def staff_progress_prefix(self, ctx: commands.Context):
+        await ctx.send(embed=self._build_staff_overview_embed(ctx.guild))
 
     @staff_group.command(name="break", description="Put a staff member on break")
     @app_commands.checks.has_permissions(administrator=True)
