@@ -286,20 +286,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 if member is None:
                     continue
 
-                break_role = guild.get_role(TOUCHING_GRASS_ROLE_ID)
-                roles_to_add = []
-                for role_id_text in (saved_roles or "").split(","):
-                    if not role_id_text:
-                        continue
-                    role = guild.get_role(int(role_id_text))
-                    if role is not None and role not in member.roles:
-                        roles_to_add.append(role)
-
-                if break_role and break_role in member.roles:
-                    await member.remove_roles(break_role, reason="Timed staff break expired")
-                if roles_to_add:
-                    await member.add_roles(*roles_to_add, reason="Timed staff break expired")
-                restored = True
+                restored = await self._restore_member_roles(member, saved_roles, reason="Timed staff break expired")
                 break
 
             if restored:
@@ -312,6 +299,25 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                     (user_id,),
                 )
         self.conn.commit()
+
+    async def _restore_member_roles(self, member: discord.Member, saved_roles: str | None, *, reason: str) -> bool:
+        break_role = member.guild.get_role(TOUCHING_GRASS_ROLE_ID)
+        roles_to_add = []
+        for role_id_text in (saved_roles or "").split(","):
+            if not role_id_text:
+                continue
+            role = member.guild.get_role(int(role_id_text))
+            if role is not None and role not in member.roles:
+                roles_to_add.append(role)
+
+        changed = False
+        if break_role and break_role in member.roles:
+            await member.remove_roles(break_role, reason=reason)
+            changed = True
+        if roles_to_add:
+            await member.add_roles(*roles_to_add, reason=reason)
+            changed = True
+        return changed
 
     async def _send_weekly_report(self, report_week_id: str):
         channel = self.bot.get_channel(REPORT_CHANNEL_ID)
@@ -498,19 +504,25 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             embed.add_field(name="Status", value="🟦 On break", inline=False)
         return embed
 
-    @app_commands.command(name="weeklyprogress", description="Show your weekly staff progress")
-    async def weekly_progress_slash(self, interaction: discord.Interaction):
-        embed = self._build_progress_embed(interaction.user)
+    @app_commands.command(name="weeklyprogress", description="Show weekly staff progress")
+    async def weekly_progress_slash(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member | None = None,
+    ):
+        target = user or interaction.user
+        embed = self._build_progress_embed(target)
         if embed is None:
-            await interaction.response.send_message("You are not registered in the staff logger.", ephemeral=True)
+            await interaction.response.send_message("That user is not registered in the staff logger.", ephemeral=True)
             return
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @commands.command(name="weeklyprogress")
-    async def weekly_progress_prefix(self, ctx: commands.Context):
-        embed = self._build_progress_embed(ctx.author)
+    @commands.command(name="weeklyprogress", aliases=["wp"])
+    async def weekly_progress_prefix(self, ctx: commands.Context, user: discord.Member | None = None):
+        target = user or ctx.author
+        embed = self._build_progress_embed(target)
         if embed is None:
-            await ctx.send("You are not registered in the staff logger.")
+            await ctx.send("That user is not registered in the staff logger.")
             return
         await ctx.send(embed=embed)
 
@@ -571,7 +583,35 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             ),
             inline=False,
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
+
+    @staff_group.command(name="endbreak", description="Restore a staff member from break")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def staff_end_break(self, interaction: discord.Interaction, user: discord.Member):
+        row = self._registered_row(user.id)
+        if not row or not row[1]:
+            await interaction.response.send_message("That user is not currently on break.", ephemeral=True)
+            return
+
+        restored = await self._restore_member_roles(
+            user,
+            row[2],
+            reason="Staff break ended manually",
+        )
+        self.cursor.execute(
+            """
+            UPDATE staff_users
+            SET is_on_break = 0, saved_roles = NULL, break_until = NULL
+            WHERE user_id = ?
+            """,
+            (user.id,),
+        )
+        self.conn.commit()
+
+        embed = discord.Embed(title="Staff Break Ended", color=discord.Color.green())
+        embed.add_field(name="User", value=user.mention, inline=True)
+        embed.add_field(name="Roles Restored", value="Yes" if restored else "No saved roles to restore", inline=True)
+        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot):
