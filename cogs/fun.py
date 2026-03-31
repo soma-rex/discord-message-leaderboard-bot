@@ -187,6 +187,7 @@ class FunCog(commands.Cog, name="Fun"):
             await ctx.send(f"Error: {e}")
 
     @commands.command(name="fool")
+    @commands.is_owner()
     async def fool_prefix(self, ctx: commands.Context):
         embed = self._build_april_fools_embed()
         await ctx.send(embed=embed)
@@ -263,6 +264,7 @@ class FunCog(commands.Cog, name="Fun"):
             await interaction.followup.send(f"Error: {e}")
 
     @app_commands.command(name="fool", description="Send a giant April Fools embed")
+    @app_commands.checks.is_owner()
     async def fool_slash(self, interaction: discord.Interaction):
         embed = self._build_april_fools_embed()
         await interaction.response.send_message(embed=embed)
