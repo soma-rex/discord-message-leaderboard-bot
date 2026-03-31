@@ -146,8 +146,15 @@ async def on_ready():
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
-    if isinstance(error, (app_commands.errors.MissingPermissions, app_commands.errors.CheckFailure)):
+    if isinstance(error, app_commands.errors.MissingPermissions):
         message = "You need admin permission to use this command."
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+        return
+    if isinstance(error, app_commands.errors.CheckFailure):
+        message = "Only the bot owner can use this command." if getattr(interaction.command, "name", "") == "fool" else "You need admin permission to use this command."
         if interaction.response.is_done():
             await interaction.followup.send(message, ephemeral=True)
         else:

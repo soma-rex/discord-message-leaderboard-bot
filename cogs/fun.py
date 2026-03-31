@@ -24,6 +24,10 @@ LURKING_RESPONSE_EMOJIS = [
 ]
 
 
+async def is_bot_owner(interaction: discord.Interaction) -> bool:
+    return await interaction.client.is_owner(interaction.user)
+
+
 class LurkingView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=60)
@@ -264,7 +268,7 @@ class FunCog(commands.Cog, name="Fun"):
             await interaction.followup.send(f"Error: {e}")
 
     @app_commands.command(name="fool", description="Send a giant April Fools embed")
-    @app_commands.checks.is_owner()
+    @app_commands.check(is_bot_owner)
     async def fool_slash(self, interaction: discord.Interaction):
         embed = self._build_april_fools_embed()
         await interaction.response.send_message(embed=embed)
