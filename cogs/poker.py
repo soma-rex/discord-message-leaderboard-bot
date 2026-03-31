@@ -58,6 +58,19 @@ PHASE_COLORS = {
     "showdown": discord.Color.gold(),
 }
 
+TABLE_PRESETS = {
+    "high_rollers": {
+        "name": "Dragon's Vault",
+        "buy_in": 10000,
+        "raise_cap": 5000,
+    },
+    "low_stakes": {
+        "name": "Firefly Den",
+        "buy_in": 1000,
+        "raise_cap": 500,
+    },
+}
+
 def is_owner(interaction: discord.Interaction) -> bool:
     return interaction.user.id == 720550790036455444
 
@@ -189,6 +202,73 @@ def build_players_embed(game: dict) -> discord.Embed:
         lines.append(f"{icon}  <@{uid}>  —  {note}{turn}")
     embed.description = "\n".join(lines)
     return embed
+
+
+class RaiseModal(discord.ui.Modal, title="Custom Raise"):
+    raise_amount = discord.ui.TextInput(
+        label="Raise amount",
+        placeholder="Enter how much to raise by",
+        required=True,
+        max_length=5,
+    )
+
+    def __init__(self, view: "PokerBetView"):
+        super().__init__()
+        self.view = view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        game, player, err = self.view._guard(interaction)
+        if err:
+            await interaction.response.send_message(err, ephemeral=True)
+            return
+
+        raw_amount = str(self.raise_amount).strip()
+        if not raw_amount.isdigit():
+            await interaction.response.send_message("Raise amount must be a whole number.", ephemeral=True)
+            return
+
+        raise_by = int(raw_amount)
+        raise_cap = game["raise_cap"]
+        if raise_by <= 0:
+            await interaction.response.send_message("Raise amount must be greater than 0.", ephemeral=True)
+            return
+        if raise_by > raise_cap:
+            await interaction.response.send_message(
+                f"This table only allows raises up to **{raise_cap}** per turn.",
+                ephemeral=True,
+            )
+            return
+
+        target = game["current_bet"] + raise_by
+        amount = target - player["bet"]
+        if amount <= 0:
+            await interaction.response.send_message("Invalid raise amount.", ephemeral=True)
+            return
+        if not self.view.cog.remove_chips(interaction.user.id, amount):
+            await interaction.response.send_message("Not enough chips - try All-In.", ephemeral=True)
+            return
+
+        game["current_bet"] = target
+        player["bet"] = target
+        player["total_chip_in"] += amount
+        game["pot"] += amount
+        player["acted"] = True
+
+        for uid, other in game["players"].items():
+            if uid != interaction.user.id and not other["folded"] and not other.get("all_in"):
+                other["acted"] = False
+
+        self.view._advance_turn_index(game)
+        await interaction.response.send_message(
+            f"Raised by **{raise_by}** to **{target}**.",
+            ephemeral=True,
+        )
+        await self.view._announce_action(
+            interaction.channel,
+            interaction.user,
+            f"raised by **{raise_by}** to **{target}**.",
+        )
+        await self.view.resolve_turn(interaction.channel)
 
 
 # ─────────────────────────────────────────────
@@ -536,12 +616,16 @@ class PokerBetView(discord.ui.View):
             await self._announce_action(interaction.channel, interaction.user, f"called **{amount}**.")
         await self.resolve_turn(interaction.channel)
 
-    @discord.ui.button(label="Raise +100", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Custom Raise", style=discord.ButtonStyle.success, row=1)
     async def raise_bet(self, interaction: discord.Interaction, button: discord.ui.Button):
         game, player, err = self._guard(interaction)
         if err:
             await interaction.response.send_message(err, ephemeral=True)
             return
+        modal = RaiseModal(self)
+        modal.raise_amount.placeholder = f"Max {game['raise_cap']} on this table"
+        await interaction.response.send_modal(modal)
+        return
         target = game["current_bet"] + 100
         amount = target - player["bet"]
         if amount <= 0:
@@ -663,14 +747,29 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         await interaction.response.send_message(embed=embed)
 
     @poker_group.command(name="create", description="Create a poker table")
-    async def poker_create(self, interaction: discord.Interaction, buy_in: int = 100):
+    @app_commands.describe(table="Choose which table to open")
+    @app_commands.choices(
+        table=[
+            app_commands.Choice(name="Dragon's Vault (10,000 buy-in, 5,000 max raise)", value="high_rollers"),
+            app_commands.Choice(name="Firefly Den (1,000 buy-in, 500 max raise)", value="low_stakes"),
+        ]
+    )
+    async def poker_create(
+        self,
+        interaction: discord.Interaction,
+        table: app_commands.Choice[str],
+    ):
         channel_id = interaction.channel.id
         if channel_id in self.poker_games:
             await interaction.response.send_message("A game is already active here.", ephemeral=True)
             return
+        preset = TABLE_PRESETS[table.value]
         self.poker_games[channel_id] = {
             "host":              interaction.user.id,
-            "buy_in":            buy_in,
+            "table_key":         table.value,
+            "table_name":        preset["name"],
+            "buy_in":            preset["buy_in"],
+            "raise_cap":         preset["raise_cap"],
             "players":           {},
             "deck":              [],
             "community":         [],
@@ -682,9 +781,10 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             "turn_index":        0,
         }
         embed = discord.Embed(
-            title=f"{SPADE_EMOJI} {HEART_EMOJI}  Poker Table Open  {DIAM_EMOJI} {CLUB_EMOJI}",
+            title=f"{SPADE_EMOJI} {HEART_EMOJI}  {preset['name']}  {DIAM_EMOJI} {CLUB_EMOJI}",
             description=(
-                f"Buy-in: **{buy_in}** {CHIP_EMOJI}\n\n"
+                f"Buy-in: **{preset['buy_in']}** {CHIP_EMOJI}\n"
+                f"Max raise per turn: **{preset['raise_cap']}** {CHIP_EMOJI}\n\n"
                 "Use `/poker join` to take a seat.\n"
                 "Host uses `/poker start` when everyone is ready."
             ),

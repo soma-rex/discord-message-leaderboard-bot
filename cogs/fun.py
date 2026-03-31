@@ -48,7 +48,7 @@ class LurkingView(discord.ui.View):
             return
 
         self.clicked_users.add(interaction.user.id)
-        await interaction.response.send_message(f"{interaction.user.mention} is lurking.")
+        await interaction.response.send_message(f"{interaction.user.mention} is lurking. <a:bunnylurk:1488500011699535913>")
 
 # ─────────────────────────────────────────────
 # COG
