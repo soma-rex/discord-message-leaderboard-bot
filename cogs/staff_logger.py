@@ -266,8 +266,8 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 return member.display_name
         return fallback or f"User {user_id}"
 
-    def _display_name_fixed(self, guild: discord.Guild | None, user_id: int) -> str:
-        return self._display_name(guild, user_id).replace("@", "")
+    async def _display_name_fixed(self, guild: discord.Guild | None, user_id: int) -> str:
+        return f"<@{user_id}>"
 
     def _is_registered(self, user_id: int) -> bool:
         return self._registered_row(user_id) is not None
@@ -278,7 +278,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     def _not_registered_message(self) -> str:
         return "You can't use this command because you're not registered. Use `/register` first."
 
-    def _build_staff_overview_embed(self, guild: discord.Guild) -> discord.Embed:
+    async def _build_staff_overview_embed(self, guild: discord.Guild) -> discord.Embed:
         active_week = self._config_get("active_week_id", self._current_week_id())
         self.cursor.execute(
             """
@@ -304,7 +304,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             if not role_types:
                 continue
             counts = log_map.get(user_id)
-            base_label = self._display_name_fixed(guild, user_id)
+            base_label = await self._display_name_fixed(guild, user_id)
 
             if "gman" in role_types:
                 current = self._count_for(counts, "gman")
@@ -429,7 +429,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             if not role_types:
                 continue
             counts = log_map.get(user_id)
-            base_label = self._display_name_fixed(guild, user_id)
+            base_label = await self._display_name_fixed(guild, user_id)
 
             if "gman" in role_types:
                 current = self._count_for(counts, "gman")
@@ -612,12 +612,14 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     @app_commands.command(name="staffprogress", description="Show all registered staff progress")
     @app_commands.checks.has_permissions(administrator=True)
     async def staff_progress_slash(self, interaction: discord.Interaction):
-        await interaction.response.send_message(embed=self._build_staff_overview_embed(interaction.guild), ephemeral=True)
+        embed = await self._build_staff_overview_embed(interaction.guild)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.command(name="staffprogress")
     @commands.has_permissions(administrator=True)
     async def staff_progress_prefix(self, ctx: commands.Context):
-        await ctx.send(embed=self._build_staff_overview_embed(ctx.guild))
+        embed = await self._build_staff_overview_embed(ctx.guild)
+        await ctx.send(embed=embed)
 
     @staff_group.command(name="break", description="Put a staff member on break")
     @app_commands.checks.has_permissions(administrator=True)
