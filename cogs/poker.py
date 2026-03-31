@@ -712,6 +712,56 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     def _ensure_table(self):
         self._ensure_chip_table()
 
+    async def _open_table(
+        self,
+        interaction: discord.Interaction,
+        *,
+        table_key: str,
+        table_name: str,
+        buy_in: int,
+        raise_cap: int | None,
+    ):
+        channel_id = interaction.channel.id
+        if channel_id in self.poker_games:
+            await interaction.response.send_message("A game is already active here.", ephemeral=True)
+            return
+
+        raise_cap_text = (
+            f"Max raise per turn: **{raise_cap}** {CHIP_EMOJI}"
+            if raise_cap is not None
+            else "Max raise per turn: **No cap**"
+        )
+
+        self.poker_games[channel_id] = {
+            "host": interaction.user.id,
+            "table_key": table_key,
+            "table_name": table_name,
+            "buy_in": buy_in,
+            "raise_cap": raise_cap,
+            "players": {},
+            "deck": [],
+            "community": [],
+            "visible_community": [],
+            "pot": 0,
+            "phase": "waiting",
+            "current_bet": 0,
+            "player_order": [],
+            "turn_index": 0,
+        }
+
+        embed = discord.Embed(
+            title=f"{SPADE_EMOJI} {HEART_EMOJI}  {table_name}  {DIAM_EMOJI} {CLUB_EMOJI}",
+            description=(
+                f"Buy-in: **{buy_in}** {CHIP_EMOJI}\n"
+                f"{raise_cap_text}\n\n"
+                "Use `/poker join` to take a seat.\n"
+                "Host uses `/poker start` when everyone is ready."
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text=f"Hosted by {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
+
     poker_group = app_commands.Group(name="poker", description="Texas Hold'em with chips")
 
     @app_commands.command(name="daily", description="Claim your daily poker chips")
@@ -757,8 +807,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     @poker_group.command(name="create", description="Create a poker table")
     @app_commands.describe(
         table="Choose which table to open",
-        custom_buy_in="Custom table only: set the buy-in",
-        custom_raise_cap="Custom table only: set the raise cap, or leave empty for no cap",
+        buy_in="Nebula Syndicate only: set the custom buy-in",
+        raise_cap="Nebula Syndicate only: optional raise cap, leave empty for no cap",
     )
     @app_commands.choices(
         table=[
@@ -771,65 +821,35 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         self,
         interaction: discord.Interaction,
         table: app_commands.Choice[str],
-        custom_buy_in: app_commands.Range[int, 1, 100000] | None = None,
-        custom_raise_cap: app_commands.Range[int, 1, 100000] | None = None,
+        buy_in: app_commands.Range[int, 1, 100000] | None = None,
+        raise_cap: app_commands.Range[int, 1, 100000] | None = None,
     ):
-        channel_id = interaction.channel.id
-        if channel_id in self.poker_games:
-            await interaction.response.send_message("A game is already active here.", ephemeral=True)
-            return
         preset = TABLE_PRESETS[table.value]
         if table.value == "custom":
-            if custom_buy_in is None:
+            if buy_in is None:
                 await interaction.response.send_message(
                     "Nebula Syndicate needs a custom buy-in.",
                     ephemeral=True,
                 )
                 return
-            actual_buy_in = custom_buy_in
-            actual_raise_cap = custom_raise_cap
+            actual_buy_in = buy_in
+            actual_raise_cap = raise_cap
         else:
-            if custom_buy_in is not None or custom_raise_cap is not None:
+            if buy_in is not None or raise_cap is not None:
                 await interaction.response.send_message(
-                    "Custom buy-in and custom raise cap are only for Nebula Syndicate.",
+                    "Custom buy-in and raise cap are only for Nebula Syndicate.",
                     ephemeral=True,
                 )
                 return
             actual_buy_in = preset["buy_in"]
             actual_raise_cap = preset["raise_cap"]
-        raise_cap_text = (
-            f"Max raise per turn: **{actual_raise_cap}** {CHIP_EMOJI}"
-            if actual_raise_cap is not None
-            else "Max raise per turn: **No cap**"
+        await self._open_table(
+            interaction,
+            table_key=table.value,
+            table_name=preset["name"],
+            buy_in=actual_buy_in,
+            raise_cap=actual_raise_cap,
         )
-        self.poker_games[channel_id] = {
-            "host":              interaction.user.id,
-            "table_key":         table.value,
-            "table_name":        preset["name"],
-            "buy_in":            actual_buy_in,
-            "raise_cap":         actual_raise_cap,
-            "players":           {},
-            "deck":              [],
-            "community":         [],
-            "visible_community": [],
-            "pot":               0,
-            "phase":             "waiting",
-            "current_bet":       0,
-            "player_order":      [],
-            "turn_index":        0,
-        }
-        embed = discord.Embed(
-            title=f"{SPADE_EMOJI} {HEART_EMOJI}  {preset['name']}  {DIAM_EMOJI} {CLUB_EMOJI}",
-            description=(
-                f"Buy-in: **{actual_buy_in}** {CHIP_EMOJI}\n"
-                f"{raise_cap_text}\n\n"
-                "Use `/poker join` to take a seat.\n"
-                "Host uses `/poker start` when everyone is ready."
-            ),
-            color=discord.Color.blurple(),
-        )
-        embed.set_footer(text=f"Hosted by {interaction.user.display_name}")
-        await interaction.response.send_message(embed=embed)
 
     @poker_group.command(name="join", description="Join the current poker table")
     async def poker_join(self, interaction: discord.Interaction):
