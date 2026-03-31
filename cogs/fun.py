@@ -16,6 +16,11 @@ from groq import Groq
 
 
 BOMB_REQUIRED_ROLE_ID = 996368478216929371
+LURKING_RESPONSE_EMOJIS = [
+    "<a:cutelurk2:1488518162923393155>",
+    "<a:cutelurk:1488518166006202479>",
+    "<a:bunnylurk:1488500011699535913>",
+]
 
 
 class LurkingView(discord.ui.View):
@@ -48,7 +53,8 @@ class LurkingView(discord.ui.View):
             return
 
         self.clicked_users.add(interaction.user.id)
-        await interaction.response.send_message(f"{interaction.user.mention} is lurking. <a:bunnylurk:1488500011699535913>")
+        emoji = random.choice(LURKING_RESPONSE_EMOJIS)
+        await interaction.response.send_message(f"{interaction.user.mention} is lurking. {emoji}")
 
 # ─────────────────────────────────────────────
 # COG
