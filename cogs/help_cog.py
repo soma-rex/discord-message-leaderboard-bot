@@ -17,7 +17,7 @@ HELP_PAGES = {
             ("Help", "`/help` `;help`", False),
             ("Games", "`/daily` `/chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
-            ("Fun", "`/roast` `/recommend` `;bomb` `;roast` `;recommend`", False),
+            ("Fun", "`/roast` `/recommend` `/lurking` `;bomb` `;roast` `;recommend`", False),
             ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction`", False),
         ],
     },
@@ -45,7 +45,7 @@ HELP_PAGES = {
         "title": "Help - Fun",
         "description": "Fun and utility commands.",
         "fields": [
-            ("Slash commands", "`/roast <user>`\n`/recommend <prompt>`", False),
+            ("Slash commands", "`/roast <user>`\n`/recommend <prompt>`\n`/lurking`", False),
             ("Prefix commands", "`;roast <user>`\n`;recommend <prompt>`", False),
             ("Bomb system", "`;bomb <user>`\n`;bombset <user> <seconds>`\n`;defuse <user>`", False),
             ("Owner tools", "`;pingstorm <user>`\n`;eval <code>`", False),

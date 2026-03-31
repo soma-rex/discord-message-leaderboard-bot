@@ -17,6 +17,39 @@ from groq import Groq
 
 BOMB_REQUIRED_ROLE_ID = 996368478216929371
 
+
+class LurkingView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+        self.clicked_users: set[int] = set()
+        self.message: discord.Message | None = None
+
+    async def on_timeout(self):
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+    @discord.ui.button(
+        label="I'm lurking",
+        style=discord.ButtonStyle.secondary,
+        emoji=discord.PartialEmoji.from_str("<a:lurker:1488485207563833354>"),
+    )
+    async def lurking_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in self.clicked_users:
+            await interaction.response.send_message(
+                "You already pressed this button.",
+                ephemeral=True,
+            )
+            return
+
+        self.clicked_users.add(interaction.user.id)
+        await interaction.response.send_message(f"{interaction.user.mention} is lurking.")
+
 # ─────────────────────────────────────────────
 # COG
 # ─────────────────────────────────────────────
@@ -205,6 +238,12 @@ class FunCog(commands.Cog, name="Fun"):
             await interaction.followup.send(result)
         except Exception as e:
             await interaction.followup.send(f"Error: {e}")
+
+    @app_commands.command(name="lurking", description="Ask who's lurking with a timed button")
+    async def lurking_slash(self, interaction: discord.Interaction):
+        view = LurkingView()
+        await interaction.response.send_message("Whos lurking?", view=view)
+        view.message = await interaction.original_response()
 
 
 async def setup(bot: commands.Bot):
