@@ -232,7 +232,7 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
         if raise_by <= 0:
             await interaction.response.send_message("Raise amount must be greater than 0.", ephemeral=True)
             return
-        if raise_by > raise_cap:
+        if raise_cap is not None and raise_by > raise_cap:
             await interaction.response.send_message(
                 f"This table only allows raises up to **{raise_cap}** per turn.",
                 ephemeral=True,
@@ -623,7 +623,10 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message(err, ephemeral=True)
             return
         modal = RaiseModal(self)
-        modal.raise_amount.placeholder = f"Max {game['raise_cap']} on this table"
+        raise_cap = game["raise_cap"]
+        modal.raise_amount.placeholder = (
+            f"Max {raise_cap} on this table" if raise_cap is not None else "No raise cap on this table"
+        )
         await interaction.response.send_modal(modal)
         return
         target = game["current_bet"] + 100
@@ -747,7 +750,11 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         await interaction.response.send_message(embed=embed)
 
     @poker_group.command(name="create", description="Create a poker table")
-    @app_commands.describe(table="Choose which table to open")
+    @app_commands.describe(
+        table="Choose which table to open",
+        custom_buy_in="Optional custom buy-in for this table",
+        custom_raise_cap="Optional custom raise cap. Leave empty for no cap",
+    )
     @app_commands.choices(
         table=[
             app_commands.Choice(name="Dragon's Vault (10,000 buy-in, 5,000 max raise)", value="high_rollers"),
@@ -758,18 +765,22 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         self,
         interaction: discord.Interaction,
         table: app_commands.Choice[str],
+        custom_buy_in: app_commands.Range[int, 1, 100000] | None = None,
+        custom_raise_cap: app_commands.Range[int, 1, 100000] | None = None,
     ):
         channel_id = interaction.channel.id
         if channel_id in self.poker_games:
             await interaction.response.send_message("A game is already active here.", ephemeral=True)
             return
         preset = TABLE_PRESETS[table.value]
+        actual_buy_in = custom_buy_in if custom_buy_in is not None else preset["buy_in"]
+        actual_raise_cap = custom_raise_cap
         self.poker_games[channel_id] = {
             "host":              interaction.user.id,
             "table_key":         table.value,
             "table_name":        preset["name"],
-            "buy_in":            preset["buy_in"],
-            "raise_cap":         preset["raise_cap"],
+            "buy_in":            actual_buy_in,
+            "raise_cap":         actual_raise_cap,
             "players":           {},
             "deck":              [],
             "community":         [],
@@ -783,8 +794,9 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         embed = discord.Embed(
             title=f"{SPADE_EMOJI} {HEART_EMOJI}  {preset['name']}  {DIAM_EMOJI} {CLUB_EMOJI}",
             description=(
-                f"Buy-in: **{preset['buy_in']}** {CHIP_EMOJI}\n"
-                f"Max raise per turn: **{preset['raise_cap']}** {CHIP_EMOJI}\n\n"
+                f"Buy-in: **{actual_buy_in}** {CHIP_EMOJI}\n"
+                f"Max raise per turn: **{actual_raise_cap}** {CHIP_EMOJI}\n\n" if actual_raise_cap is not None
+                else "Max raise per turn: **No cap**\n\n"
                 "Use `/poker join` to take a seat.\n"
                 "Host uses `/poker start` when everyone is ready."
             ),
