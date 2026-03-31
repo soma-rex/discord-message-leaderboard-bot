@@ -239,7 +239,7 @@ class FunCog(commands.Cog, name="Fun"):
         except Exception as e:
             await interaction.followup.send(f"Error: {e}")
 
-    @app_commands.command(name="lurking", description="Ask who's lurking with a timed button")
+    @app_commands.command(name="lurking", description="Ask who's lurking.")
     async def lurking_slash(self, interaction: discord.Interaction):
         view = LurkingView()
         await interaction.response.send_message("Whos lurking?", view=view)
