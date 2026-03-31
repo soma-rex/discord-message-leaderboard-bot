@@ -14,7 +14,7 @@ MOD_EMOJI = "<:mod:1488568750671269989>"
 
 REPORT_CHANNEL_ID = 1181356533557239818
 MOD_ACTIVITY_CHANNEL_ID = 1013340674805993512
-MOD_MESSAGE_COOLDOWN_SECONDS = 3
+MOD_MESSAGE_COOLDOWN_SECONDS = 8
 
 GIVEAWAY_MANAGER_ROLE_ID = 996372025486622760
 EVENT_MANAGER_ROLE_ID = 996372072961937450
@@ -65,10 +65,15 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 user_id INTEGER PRIMARY KEY,
                 role_type TEXT NOT NULL,
                 is_on_break INTEGER NOT NULL DEFAULT 0,
-                saved_roles TEXT
+                saved_roles TEXT,
+                break_until TEXT
             )
             """
         )
+        self.cursor.execute("PRAGMA table_info(staff_users)")
+        columns = {row[1] for row in self.cursor.fetchall()}
+        if "break_until" not in columns:
+            self.cursor.execute("ALTER TABLE staff_users ADD COLUMN break_until TEXT")
         self.cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS weekly_logs (
@@ -121,7 +126,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     def _registered_row(self, user_id: int):
         self.cursor.execute(
-            "SELECT role_type, is_on_break, saved_roles FROM staff_users WHERE user_id = ?",
+            "SELECT role_type, is_on_break, saved_roles, break_until FROM staff_users WHERE user_id = ?",
             (user_id,),
         )
         return self.cursor.fetchone()
@@ -137,6 +142,14 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         if not value:
             return []
         return [part for part in value.split(",") if part]
+
+    def _parse_break_until(self, value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
 
     def _mention_line(self, user_id: int, name: str) -> str:
         return f"{name} (<@{user_id}>)"
@@ -168,20 +181,30 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         }
         return mapping[role_type]
 
-    def _upsert_staff_user(self, user_id: int, role_types: list[str], *, is_on_break: int = 0, saved_roles: str | None = None):
+    def _upsert_staff_user(
+        self,
+        user_id: int,
+        role_types: list[str],
+        *,
+        is_on_break: int = 0,
+        saved_roles: str | None = None,
+        break_until: str | None = None,
+    ):
         existing = self._registered_row(user_id)
         saved_value = saved_roles if saved_roles is not None else (existing[2] if existing else None)
         break_value = is_on_break if existing is None else (existing[1] if saved_roles is None and is_on_break == 0 else is_on_break)
+        break_until_value = break_until if break_until is not None else (existing[3] if existing else None)
         self.cursor.execute(
             """
-            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles, break_until)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 role_type = excluded.role_type,
                 is_on_break = excluded.is_on_break,
-                saved_roles = excluded.saved_roles
+                saved_roles = excluded.saved_roles,
+                break_until = excluded.break_until
             """,
-            (user_id, self._serialize_role_types(role_types), break_value, saved_value),
+            (user_id, self._serialize_role_types(role_types), break_value, saved_value, break_until_value),
         )
         self.conn.commit()
 
@@ -241,6 +264,54 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             if member:
                 return member.display_name
         return fallback or f"User {user_id}"
+
+    async def _restore_expired_breaks(self):
+        now = datetime.now(timezone.utc)
+        self.cursor.execute(
+            """
+            SELECT user_id, role_type, saved_roles, break_until
+            FROM staff_users
+            WHERE is_on_break = 1 AND break_until IS NOT NULL
+            """
+        )
+        rows = self.cursor.fetchall()
+        for user_id, role_type_value, saved_roles, break_until_value in rows:
+            break_until = self._parse_break_until(break_until_value)
+            if break_until is None or break_until > now:
+                continue
+
+            restored = False
+            for guild in self.bot.guilds:
+                member = guild.get_member(user_id)
+                if member is None:
+                    continue
+
+                break_role = guild.get_role(TOUCHING_GRASS_ROLE_ID)
+                roles_to_add = []
+                for role_id_text in (saved_roles or "").split(","):
+                    if not role_id_text:
+                        continue
+                    role = guild.get_role(int(role_id_text))
+                    if role is not None and role not in member.roles:
+                        roles_to_add.append(role)
+
+                if break_role and break_role in member.roles:
+                    await member.remove_roles(break_role, reason="Timed staff break expired")
+                if roles_to_add:
+                    await member.add_roles(*roles_to_add, reason="Timed staff break expired")
+                restored = True
+                break
+
+            if restored:
+                self.cursor.execute(
+                    """
+                    UPDATE staff_users
+                    SET is_on_break = 0, saved_roles = NULL, break_until = NULL
+                    WHERE user_id = ?
+                    """,
+                    (user_id,),
+                )
+        self.conn.commit()
 
     async def _send_weekly_report(self, report_week_id: str):
         channel = self.bot.get_channel(REPORT_CHANNEL_ID)
@@ -326,6 +397,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     @tasks.loop(minutes=1)
     async def weekly_reset_loop(self):
+        await self._restore_expired_breaks()
         await self._roll_week_if_needed()
 
     @weekly_reset_loop.before_loop
@@ -382,7 +454,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         embed = discord.Embed(title="Staff Registration", color=discord.Color.green())
         embed.add_field(name="Role Types", value=", ".join(role.upper() for role in role_types), inline=True)
         embed.add_field(name="Week", value=self._config_get("active_week_id", self._current_week_id()), inline=True)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
 
     def _build_progress_embed(self, member: discord.Member) -> discord.Embed | None:
         row = self._sync_member_registration(member)
@@ -444,7 +516,12 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     @staff_group.command(name="break", description="Put a staff member on break")
     @app_commands.checks.has_permissions(administrator=True)
-    async def staff_break(self, interaction: discord.Interaction, user: discord.Member):
+    async def staff_break(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        days: app_commands.Range[int, 1, 365] | None = None,
+    ):
         role_types = self._resolve_role_types(user)
         row = self._registered_row(user.id)
         stored_roles = role_types or (self._parse_role_types(row[0]) if row else [])
@@ -464,16 +541,20 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             await user.add_roles(break_role, reason="Staff break enabled")
 
         saved_roles = ",".join(str(role.id) for role in removed_roles)
+        break_until = None
+        if days is not None:
+            break_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
         self.cursor.execute(
             """
-            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles)
-            VALUES (?, ?, 1, ?)
+            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles, break_until)
+            VALUES (?, ?, 1, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 role_type = excluded.role_type,
                 is_on_break = 1,
-                saved_roles = excluded.saved_roles
+                saved_roles = excluded.saved_roles,
+                break_until = excluded.break_until
             """,
-            (user.id, self._serialize_role_types(stored_roles), saved_roles),
+            (user.id, self._serialize_role_types(stored_roles), saved_roles, break_until),
         )
         self.conn.commit()
 
@@ -481,6 +562,15 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         embed.add_field(name="User", value=user.mention, inline=True)
         embed.add_field(name="Stored Roles", value=", ".join(role.upper() for role in stored_roles), inline=True)
         embed.add_field(name="Break Role", value=break_role.mention, inline=True)
+        embed.add_field(
+            name="Duration",
+            value=(
+                f"{days} day(s)\nEnds: <t:{int(self._parse_break_until(break_until).timestamp())}:R>"
+                if break_until is not None
+                else "Permanent until changed manually"
+            ),
+            inline=False,
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
