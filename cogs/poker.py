@@ -69,6 +69,11 @@ TABLE_PRESETS = {
         "buy_in": 1000,
         "raise_cap": 500,
     },
+    "custom": {
+        "name": "Nebula Syndicate",
+        "buy_in": None,
+        "raise_cap": None,
+    },
 }
 
 def is_owner(interaction: discord.Interaction) -> bool:
@@ -752,13 +757,14 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     @poker_group.command(name="create", description="Create a poker table")
     @app_commands.describe(
         table="Choose which table to open",
-        custom_buy_in="Optional custom buy-in for this table",
-        custom_raise_cap="Optional custom raise cap. Leave empty for no cap",
+        custom_buy_in="Custom table only: set the buy-in",
+        custom_raise_cap="Custom table only: set the raise cap, or leave empty for no cap",
     )
     @app_commands.choices(
         table=[
             app_commands.Choice(name="Dragon's Vault (10,000 buy-in, 5,000 max raise)", value="high_rollers"),
             app_commands.Choice(name="Firefly Den (1,000 buy-in, 500 max raise)", value="low_stakes"),
+            app_commands.Choice(name="Nebula Syndicate (custom buy-in, optional raise cap)", value="custom"),
         ]
     )
     async def poker_create(
@@ -773,8 +779,29 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             await interaction.response.send_message("A game is already active here.", ephemeral=True)
             return
         preset = TABLE_PRESETS[table.value]
-        actual_buy_in = custom_buy_in if custom_buy_in is not None else preset["buy_in"]
-        actual_raise_cap = custom_raise_cap
+        if table.value == "custom":
+            if custom_buy_in is None:
+                await interaction.response.send_message(
+                    "Nebula Syndicate needs a custom buy-in.",
+                    ephemeral=True,
+                )
+                return
+            actual_buy_in = custom_buy_in
+            actual_raise_cap = custom_raise_cap
+        else:
+            if custom_buy_in is not None or custom_raise_cap is not None:
+                await interaction.response.send_message(
+                    "Custom buy-in and custom raise cap are only for Nebula Syndicate.",
+                    ephemeral=True,
+                )
+                return
+            actual_buy_in = preset["buy_in"]
+            actual_raise_cap = preset["raise_cap"]
+        raise_cap_text = (
+            f"Max raise per turn: **{actual_raise_cap}** {CHIP_EMOJI}"
+            if actual_raise_cap is not None
+            else "Max raise per turn: **No cap**"
+        )
         self.poker_games[channel_id] = {
             "host":              interaction.user.id,
             "table_key":         table.value,
@@ -795,8 +822,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             title=f"{SPADE_EMOJI} {HEART_EMOJI}  {preset['name']}  {DIAM_EMOJI} {CLUB_EMOJI}",
             description=(
                 f"Buy-in: **{actual_buy_in}** {CHIP_EMOJI}\n"
-                f"Max raise per turn: **{actual_raise_cap}** {CHIP_EMOJI}\n\n" if actual_raise_cap is not None
-                else "Max raise per turn: **No cap**\n\n"
+                f"{raise_cap_text}\n\n"
                 "Use `/poker join` to take a seat.\n"
                 "Host uses `/poker start` when everyone is ready."
             ),
