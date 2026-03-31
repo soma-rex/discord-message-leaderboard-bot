@@ -266,6 +266,9 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 return member.display_name
         return fallback or f"User {user_id}"
 
+    def _display_name_fixed(self, guild: discord.Guild | None, user_id: int) -> str:
+        return self._display_name(guild, user_id).replace("@", "")
+
     def _is_registered(self, user_id: int) -> bool:
         return self._registered_row(user_id) is not None
 
@@ -301,7 +304,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             if not role_types:
                 continue
             counts = log_map.get(user_id)
-            base_label = self._display_name(guild, user_id)
+            base_label = self._display_name_fixed(guild, user_id)
 
             if "gman" in role_types:
                 current = self._count_for(counts, "gman")
@@ -426,7 +429,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             if not role_types:
                 continue
             counts = log_map.get(user_id)
-            base_label = self._display_name(guild, user_id)
+            base_label = self._display_name_fixed(guild, user_id)
 
             if "gman" in role_types:
                 current = self._count_for(counts, "gman")
