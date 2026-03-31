@@ -18,7 +18,7 @@ HELP_PAGES = {
             ("Games", "`/daily` `/chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
             ("Fun", "`/roast` `/recommend` `/lurking` `;bomb` `;roast` `;recommend`", False),
-            ("Staff", "`/register` `/weeklyprogress` `/staffprogress` `/staff break` `/staff endbreak`", False),
+            ("Staff", "`/register` `/profile` `/weeklyprogress` `/staffprogress` `/sotm` `/staff break` `/staff endbreak`", False),
             ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction`", False),
         ],
     },
@@ -67,10 +67,12 @@ HELP_PAGES = {
         "description": "Staff tracking and break management commands.",
         "fields": [
             ("Register", "`/register` Register yourself for staff tracking", False),
+            ("Profile", "`/profile`\n`;profile`\n`/enterbday`\n`;enterbday <day> <month> <year>`", False),
             ("Personal progress", "`/weeklyprogress`\n`;weeklyprogress`\n`;wp`", False),
             ("View others", "`/weeklyprogress <user>`\n`;weeklyprogress <user>`\n`;wp <user>`", False),
             ("Overview", "`/staffprogress`\n`;staffprogress`", False),
-            ("Break tools", "`/staff break <user> [days]`\n`/staff endbreak <user>`", False),
+            ("Recognition", "`/sotm <user1> [user2] [user3]`\n`;sotm <user1> [user2] [user3]`", False),
+            ("Break tools", "`/staff break <user> [days]`\n`/staff endbreak <user>`\n`/staff sethiredate <user> <day> <month> <year>`", False),
         ],
     },
     "prefix": {
@@ -79,7 +81,7 @@ HELP_PAGES = {
         "fields": [
             ("General", "`;help`", False),
             ("Fun", "`;roast` `;recommend`", False),
-            ("Staff", "`;weeklyprogress` `;wp` `;staffprogress`", False),
+            ("Staff", "`;profile` `;enterbday` `;weeklyprogress` `;wp` `;staffprogress` `;sotm`", False),
             ("Bomb", "`;bomb` `;bombset` `;defuse`", False),
             ("Owner-only", "`;pingstorm` `;eval`", False),
         ],

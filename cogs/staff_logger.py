@@ -22,6 +22,7 @@ MODERATOR_ROLE_ID = 996371883807219803
 TRIAL_MODERATOR_ROLE_ID = 996371928493330534
 TOUCHING_GRASS_ROLE_ID = 1128285153135955978
 BASIC_STAFF_ROLE_ID = 996372307528384583
+SOTM_ROLE_ID = 1134767539356962917
 
 GMAN_TRIGGER_ROLE_IDS = {
     1107542167746007080,
@@ -68,14 +69,32 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 role_type TEXT NOT NULL,
                 is_on_break INTEGER NOT NULL DEFAULT 0,
                 saved_roles TEXT,
-                break_until TEXT
+                break_until TEXT,
+                registered_at TEXT,
+                birthday TEXT,
+                hired_date TEXT,
+                sotm_count INTEGER NOT NULL DEFAULT 0,
+                total_gman_count INTEGER NOT NULL DEFAULT 0,
+                total_eman_count INTEGER NOT NULL DEFAULT 0,
+                total_mod_message_count INTEGER NOT NULL DEFAULT 0
             )
             """
         )
         self.cursor.execute("PRAGMA table_info(staff_users)")
         columns = {row[1] for row in self.cursor.fetchall()}
-        if "break_until" not in columns:
-            self.cursor.execute("ALTER TABLE staff_users ADD COLUMN break_until TEXT")
+        required_columns = {
+            "break_until": "TEXT",
+            "registered_at": "TEXT",
+            "birthday": "TEXT",
+            "hired_date": "TEXT",
+            "sotm_count": "INTEGER NOT NULL DEFAULT 0",
+            "total_gman_count": "INTEGER NOT NULL DEFAULT 0",
+            "total_eman_count": "INTEGER NOT NULL DEFAULT 0",
+            "total_mod_message_count": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column_name, column_type in required_columns.items():
+            if column_name not in columns:
+                self.cursor.execute(f"ALTER TABLE staff_users ADD COLUMN {column_name} {column_type}")
         self.cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS weekly_logs (
@@ -128,7 +147,22 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     def _registered_row(self, user_id: int):
         self.cursor.execute(
-            "SELECT role_type, is_on_break, saved_roles, break_until FROM staff_users WHERE user_id = ?",
+            """
+            SELECT
+                role_type,
+                is_on_break,
+                saved_roles,
+                break_until,
+                registered_at,
+                birthday,
+                hired_date,
+                sotm_count,
+                total_gman_count,
+                total_eman_count,
+                total_mod_message_count
+            FROM staff_users
+            WHERE user_id = ?
+            """,
             (user_id,),
         )
         return self.cursor.fetchone()
@@ -152,6 +186,20 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             return datetime.fromisoformat(value)
         except ValueError:
             return None
+
+    def _parse_date_string(self, value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return None
+
+    def _format_date_string(self, value: str | None, *, unknown: str = "Not known yet") -> str:
+        parsed = self._parse_date_string(value)
+        if parsed is None:
+            return unknown
+        return parsed.strftime("%d %b %Y")
 
     def _mention_line(self, user_id: int, name: str) -> str:
         return f"{name} (<@{user_id}>)"
@@ -229,6 +277,14 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             (user_id, week_id),
         )
         self.conn.commit()
+        total_field_map = {
+            "gman_count": "total_gman_count",
+            "eman_count": "total_eman_count",
+            "mod_message_count": "total_mod_message_count",
+        }
+        total_field = total_field_map.get(field_name)
+        if total_field:
+            self._increment_total_stat(user_id, total_field)
 
     def _get_weekly_log(self, user_id: int, week_id: str | None = None):
         target_week = week_id or self._config_get("active_week_id", self._current_week_id())
@@ -277,6 +333,45 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     def _not_registered_message(self) -> str:
         return "You can't use this command because you're not registered. Use `/register` first."
+
+    def _increment_total_stat(self, user_id: int, field_name: str):
+        self.cursor.execute(f"UPDATE staff_users SET {field_name} = {field_name} + 1 WHERE user_id = ?", (user_id,))
+        self.conn.commit()
+
+    def _set_profile_field(self, user_id: int, field_name: str, value: str | None):
+        self.cursor.execute(f"UPDATE staff_users SET {field_name} = ? WHERE user_id = ?", (value, user_id))
+        self.conn.commit()
+
+    def _build_profile_embed(self, member: discord.Member) -> discord.Embed | None:
+        row = self._sync_member_registration(member)
+        if not row:
+            return None
+
+        role_types = self._parse_role_types(row[0])
+        is_on_break = bool(row[1])
+        registered_at = row[4]
+        birthday = row[5]
+        hired_date = row[6]
+        sotm_count = row[7] or 0
+        total_gman = row[8] or 0
+        total_eman = row[9] or 0
+        total_mod = row[10] or 0
+
+        embed = discord.Embed(title="Staff Profile", color=discord.Color.blurple())
+        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.add_field(name="Tracked Roles", value=", ".join(role.upper() for role in role_types) or "None", inline=False)
+        embed.add_field(name="Date Joined", value=self._format_date_string(registered_at), inline=True)
+        embed.add_field(name="Hired Date", value=self._format_date_string(hired_date), inline=True)
+        embed.add_field(name="Birthday", value=self._format_date_string(birthday), inline=True)
+        embed.add_field(name="On Break", value="Yes" if is_on_break else "No", inline=True)
+        embed.add_field(name="SOTM Awards", value=str(sotm_count), inline=True)
+        embed.add_field(name="Lifetime Stats", value=(
+            f"{GIVEAWAY_EMOJI} Giveaway pings: **{total_gman}**\n"
+            f"{EVENT_EMOJI} Event pings: **{total_eman}**\n"
+            f"{MOD_EMOJI} Mod messages: **{total_mod}**"
+        ), inline=False)
+        return embed
 
     async def _build_staff_overview_embed(self, guild: discord.Guild) -> discord.Embed:
         active_week = self._config_get("active_week_id", self._current_week_id())
@@ -534,6 +629,9 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             return
 
         self._upsert_staff_user(interaction.user.id, role_types)
+        row = self._registered_row(interaction.user.id)
+        if row and not row[4]:
+            self._set_profile_field(interaction.user.id, "registered_at", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         embed = discord.Embed(title="Staff Registration", color=discord.Color.green())
         embed.add_field(name="Role Types", value=", ".join(role.upper() for role in role_types), inline=True)
         embed.add_field(name="Week", value=self._config_get("active_week_id", self._current_week_id()), inline=True)
@@ -609,6 +707,62 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             return
         await ctx.send(embed=embed)
 
+    @app_commands.command(name="profile", description="Show your staff profile")
+    async def profile_slash(self, interaction: discord.Interaction, user: discord.Member | None = None):
+        if not self._can_use_staff_commands(interaction.user):
+            await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
+            return
+        target = user or interaction.user
+        embed = self._build_profile_embed(target)
+        if embed is None:
+            await interaction.response.send_message("That user is not registered in the staff logger.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="profile")
+    async def profile_prefix(self, ctx: commands.Context, user: discord.Member | None = None):
+        if not self._can_use_staff_commands(ctx.author):
+            await ctx.send(self._not_registered_message())
+            return
+        target = user or ctx.author
+        embed = self._build_profile_embed(target)
+        if embed is None:
+            await ctx.send("That user is not registered in the staff logger.")
+            return
+        await ctx.send(embed=embed)
+
+    @app_commands.command(name="enterbday", description="Set your birthday for your staff profile")
+    async def enter_bday_slash(
+        self,
+        interaction: discord.Interaction,
+        day: app_commands.Range[int, 1, 31],
+        month: app_commands.Range[int, 1, 12],
+        year: app_commands.Range[int, 1900, 2100],
+    ):
+        if not self._is_registered(interaction.user.id):
+            await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
+            return
+        try:
+            birthday = datetime(year, month, day)
+        except ValueError:
+            await interaction.response.send_message("That birthday is not a valid date.", ephemeral=True)
+            return
+        self._set_profile_field(interaction.user.id, "birthday", birthday.strftime("%Y-%m-%d"))
+        await interaction.response.send_message("Birthday saved to your staff profile.", ephemeral=True)
+
+    @commands.command(name="enterbday")
+    async def enter_bday_prefix(self, ctx: commands.Context, day: int, month: int, year: int):
+        if not self._is_registered(ctx.author.id):
+            await ctx.send(self._not_registered_message())
+            return
+        try:
+            birthday = datetime(year, month, day)
+        except ValueError:
+            await ctx.send("That birthday is not a valid date.")
+            return
+        self._set_profile_field(ctx.author.id, "birthday", birthday.strftime("%Y-%m-%d"))
+        await ctx.send("Birthday saved to your staff profile.")
+
     @app_commands.command(name="staffprogress", description="Show all registered staff progress")
     @app_commands.checks.has_permissions(administrator=True)
     async def staff_progress_slash(self, interaction: discord.Interaction):
@@ -619,6 +773,66 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     @commands.has_permissions(administrator=True)
     async def staff_progress_prefix(self, ctx: commands.Context):
         embed = await self._build_staff_overview_embed(ctx.guild)
+        await ctx.send(embed=embed)
+
+    @app_commands.command(name="sotm", description="Award the SOTM role to up to 3 users")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def sotm_slash(
+        self,
+        interaction: discord.Interaction,
+        user1: discord.Member,
+        user2: discord.Member | None = None,
+        user3: discord.Member | None = None,
+    ):
+        sotm_role = interaction.guild.get_role(SOTM_ROLE_ID)
+        if sotm_role is None:
+            await interaction.response.send_message("SOTM role not found.", ephemeral=True)
+            return
+
+        targets = []
+        for member in (user1, user2, user3):
+            if member and member.id not in {target.id for target in targets}:
+                targets.append(member)
+
+        for member in targets:
+            if sotm_role not in member.roles:
+                await member.add_roles(sotm_role, reason="SOTM awarded")
+            if self._is_registered(member.id):
+                self._increment_total_stat(member.id, "sotm_count")
+
+        embed = discord.Embed(title="SOTM Awarded", color=discord.Color.gold())
+        embed.add_field(name="Recipients", value="\n".join(member.mention for member in targets), inline=False)
+        embed.add_field(name="Role", value=sotm_role.mention, inline=True)
+        await interaction.response.send_message(embed=embed)
+
+    @commands.command(name="sotm")
+    @commands.has_permissions(administrator=True)
+    async def sotm_prefix(
+        self,
+        ctx: commands.Context,
+        user1: discord.Member,
+        user2: discord.Member | None = None,
+        user3: discord.Member | None = None,
+    ):
+        sotm_role = ctx.guild.get_role(SOTM_ROLE_ID)
+        if sotm_role is None:
+            await ctx.send("SOTM role not found.")
+            return
+
+        targets = []
+        for member in (user1, user2, user3):
+            if member and member.id not in {target.id for target in targets}:
+                targets.append(member)
+
+        for member in targets:
+            if sotm_role not in member.roles:
+                await member.add_roles(sotm_role, reason="SOTM awarded")
+            if self._is_registered(member.id):
+                self._increment_total_stat(member.id, "sotm_count")
+
+        embed = discord.Embed(title="SOTM Awarded", color=discord.Color.gold())
+        embed.add_field(name="Recipients", value="\n".join(member.mention for member in targets), inline=False)
+        embed.add_field(name="Role", value=sotm_role.mention, inline=True)
         await ctx.send(embed=embed)
 
     @staff_group.command(name="break", description="Put a staff member on break")
@@ -707,6 +921,30 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         embed.add_field(name="User", value=user.mention, inline=True)
         embed.add_field(name="Roles Restored", value="Yes" if restored else "No saved roles to restore", inline=True)
         await interaction.response.send_message(embed=embed)
+
+    @staff_group.command(name="sethiredate", description="Manually set a user's hired date")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def staff_set_hire_date(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        day: app_commands.Range[int, 1, 31],
+        month: app_commands.Range[int, 1, 12],
+        year: app_commands.Range[int, 1900, 2100],
+    ):
+        if not self._is_registered(user.id):
+            await interaction.response.send_message("That user is not registered in the staff logger.", ephemeral=True)
+            return
+        try:
+            hired_date = datetime(year, month, day)
+        except ValueError:
+            await interaction.response.send_message("That hired date is not a valid date.", ephemeral=True)
+            return
+        self._set_profile_field(user.id, "hired_date", hired_date.strftime("%Y-%m-%d"))
+        await interaction.response.send_message(
+            f"Hired date updated for {user.mention} to {hired_date.strftime('%d %b %Y')}.",
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot):
