@@ -10,8 +10,11 @@ from discord.ext import commands, tasks
 
 EVENT_EMOJI = "<:eventcard:1488562862262718708>"
 GIVEAWAY_EMOJI = "<:giveaway:1488562864926101637>"
+MOD_EMOJI = "<:mod:1488568750671269989>"
 
 REPORT_CHANNEL_ID = 1181356533557239818
+MOD_ACTIVITY_CHANNEL_ID = 1013340674805993512
+MOD_MESSAGE_COOLDOWN_SECONDS = 3
 
 GIVEAWAY_MANAGER_ROLE_ID = 996372025486622760
 EVENT_MANAGER_ROLE_ID = 996372072961937450
@@ -47,6 +50,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         self.bot = bot
         self.conn: sqlite3.Connection = bot.conn
         self.cursor: sqlite3.Cursor = bot.cursor
+        self.mod_message_cooldowns: dict[int, datetime] = {}
         self._ensure_tables()
         self._ensure_active_week()
         self.weekly_reset_loop.start()
@@ -122,12 +126,17 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         )
         return self.cursor.fetchone()
 
-    def _resolve_role_type(self, member: discord.Member) -> str | None:
+    def _resolve_role_types(self, member: discord.Member) -> list[str]:
         role_ids = {role.id for role in member.roles}
-        for role_type, role_id in ROLE_PRIORITY:
-            if role_id in role_ids:
-                return role_type
-        return None
+        return [role_type for role_type, role_id in ROLE_PRIORITY if role_id in role_ids]
+
+    def _serialize_role_types(self, role_types: list[str]) -> str:
+        return ",".join(role_types)
+
+    def _parse_role_types(self, value: str | None) -> list[str]:
+        if not value:
+            return []
+        return [part for part in value.split(",") if part]
 
     def _mention_line(self, user_id: int, name: str) -> str:
         return f"{name} (<@{user_id}>)"
@@ -154,12 +163,12 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         mapping = {
             "gman": f"{GIVEAWAY_EMOJI} Giveaway Managers",
             "eman": f"{EVENT_EMOJI} Event Managers",
-            "mod": "🛡️ Moderators",
-            "tmod": "🛡️ Trial Moderators",
+            "mod": f"{MOD_EMOJI} Moderators",
+            "tmod": f"{MOD_EMOJI} Trial Moderators",
         }
         return mapping[role_type]
 
-    def _upsert_staff_user(self, user_id: int, role_type: str, *, is_on_break: int = 0, saved_roles: str | None = None):
+    def _upsert_staff_user(self, user_id: int, role_types: list[str], *, is_on_break: int = 0, saved_roles: str | None = None):
         existing = self._registered_row(user_id)
         saved_value = saved_roles if saved_roles is not None else (existing[2] if existing else None)
         break_value = is_on_break if existing is None else (existing[1] if saved_roles is None and is_on_break == 0 else is_on_break)
@@ -172,7 +181,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 is_on_break = excluded.is_on_break,
                 saved_roles = excluded.saved_roles
             """,
-            (user_id, role_type, break_value, saved_value),
+            (user_id, self._serialize_role_types(role_types), break_value, saved_value),
         )
         self.conn.commit()
 
@@ -210,10 +219,10 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
     def _sync_member_registration(self, member: discord.Member):
         row = self._registered_row(member.id)
-        current_role = self._resolve_role_type(member)
+        current_roles = self._resolve_role_types(member)
         if row and row[1]:
             return row
-        if current_role is None:
+        if not current_roles:
             return None
         self.cursor.execute(
             """
@@ -221,7 +230,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             VALUES (?, ?, 0, NULL)
             ON CONFLICT(user_id) DO UPDATE SET role_type = excluded.role_type
             """,
-            (member.id, current_role),
+            (member.id, self._serialize_role_types(current_roles)),
         )
         self.conn.commit()
         return self._registered_row(member.id)
@@ -261,21 +270,31 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         log_map = {row[0]: row[1:] for row in self.cursor.fetchall()}
 
         sections: dict[str, list[str]] = {"gman": [], "eman": [], "mod": []}
-        for user_id, role_type, is_on_break in staff_rows:
-            if role_type not in {"gman", "eman", "mod", "tmod"}:
+        for user_id, role_type_value, is_on_break in staff_rows:
+            role_types = self._parse_role_types(role_type_value)
+            if not role_types:
                 continue
             counts = log_map.get(user_id)
-            current = self._count_for(counts, role_type)
-            requirement = self._requirement_for(role_type)
-            bar = self._progress_bar(current, requirement, is_on_break=bool(is_on_break))
-            label = self._display_name(guild, user_id)
-            target_text = "break" if is_on_break else f"{current}/{requirement}"
-            if role_type == "tmod":
-                label = f"{label} [Trial]"
-                section_key = "mod"
-            else:
-                section_key = role_type
-            sections[section_key].append(f"{label:<18} | {bar} ({target_text})")
+            base_label = self._display_name(guild, user_id)
+
+            if "gman" in role_types:
+                current = self._count_for(counts, "gman")
+                bar = self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))
+                target_text = "break" if is_on_break else f"{current}/{PING_REQUIREMENT}"
+                sections["gman"].append(f"{base_label:<18} | {bar} ({target_text})")
+
+            if "eman" in role_types:
+                current = self._count_for(counts, "eman")
+                bar = self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))
+                target_text = "break" if is_on_break else f"{current}/{PING_REQUIREMENT}"
+                sections["eman"].append(f"{base_label:<18} | {bar} ({target_text})")
+
+            if {"mod", "tmod"} & set(role_types):
+                current = self._count_for(counts, "mod")
+                bar = self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))
+                target_text = "break" if is_on_break else f"{current}/{MOD_MESSAGE_REQUIREMENT}"
+                mod_label = f"{base_label} [Trial]" if "tmod" in role_types and "mod" not in role_types else base_label
+                sections["mod"].append(f"{mod_label:<18} | {bar} ({target_text})")
 
         embed = discord.Embed(
             title="Weekly Staff Report",
@@ -318,9 +337,9 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         row = self._registered_row(after.id)
         if row and row[1]:
             return
-        role_type = self._resolve_role_type(after)
-        if role_type:
-            self._upsert_staff_user(after.id, role_type)
+        role_types = self._resolve_role_types(after)
+        if role_types:
+            self._upsert_staff_user(after.id, role_types)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -333,29 +352,35 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         if not row or row[1]:
             return
 
-        role_type = row[0]
+        role_types = set(self._parse_role_types(row[0]))
         mentioned_role_ids = {role.id for role in message.role_mentions}
 
-        if role_type == "gman" and mentioned_role_ids & GMAN_TRIGGER_ROLE_IDS:
+        if "gman" in role_types and mentioned_role_ids & GMAN_TRIGGER_ROLE_IDS:
             self._increment_log(message.author.id, "gman_count")
-        elif role_type == "eman" and mentioned_role_ids & EMAN_TRIGGER_ROLE_IDS:
+        if "eman" in role_types and mentioned_role_ids & EMAN_TRIGGER_ROLE_IDS:
             self._increment_log(message.author.id, "eman_count")
-        elif role_type in {"mod", "tmod"}:
+
+        if role_types & {"mod", "tmod"} and message.channel.id == MOD_ACTIVITY_CHANNEL_ID:
+            now = datetime.now(timezone.utc)
+            last_seen = self.mod_message_cooldowns.get(message.author.id)
+            if last_seen and (now - last_seen).total_seconds() < MOD_MESSAGE_COOLDOWN_SECONDS:
+                return
+            self.mod_message_cooldowns[message.author.id] = now
             self._increment_log(message.author.id, "mod_message_count")
 
     @app_commands.command(name="register", description="Register yourself in the staff logger")
     async def register(self, interaction: discord.Interaction):
-        role_type = self._resolve_role_type(interaction.user)
-        if role_type is None:
+        role_types = self._resolve_role_types(interaction.user)
+        if not role_types:
             await interaction.response.send_message(
                 "You do not have a trackable staff role.",
                 ephemeral=True,
             )
             return
 
-        self._upsert_staff_user(interaction.user.id, role_type)
+        self._upsert_staff_user(interaction.user.id, role_types)
         embed = discord.Embed(title="Staff Registration", color=discord.Color.green())
-        embed.add_field(name="Role Type", value=role_type.upper(), inline=True)
+        embed.add_field(name="Role Types", value=", ".join(role.upper() for role in role_types), inline=True)
         embed.add_field(name="Week", value=self._config_get("active_week_id", self._current_week_id()), inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -364,7 +389,8 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         if not row:
             return None
 
-        role_type, is_on_break, _ = row
+        role_types = self._parse_role_types(row[0])
+        is_on_break = row[1]
         logs = self._get_weekly_log(member.id)
         embed = discord.Embed(
             title="Weekly Progress",
@@ -373,25 +399,25 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         )
         embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
 
-        if role_type == "gman":
-            current = self._count_for(logs, role_type)
+        if "gman" in role_types:
+            current = self._count_for(logs, "gman")
             embed.add_field(
                 name=f"{GIVEAWAY_EMOJI} Giveaway Managers",
                 value=f"{self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} ({current}/{PING_REQUIREMENT})",
                 inline=False,
             )
-        elif role_type == "eman":
-            current = self._count_for(logs, role_type)
+        if "eman" in role_types:
+            current = self._count_for(logs, "eman")
             embed.add_field(
                 name=f"{EVENT_EMOJI} Event Managers",
                 value=f"{self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} ({current}/{PING_REQUIREMENT})",
                 inline=False,
             )
-        else:
-            current = self._count_for(logs, role_type)
-            label = "Trial Moderators" if role_type == "tmod" else "Moderators"
+        if set(role_types) & {"mod", "tmod"}:
+            current = self._count_for(logs, "mod")
+            label = "Moderators"
             embed.add_field(
-                name=f"🛡️ {label}",
+                name=f"{MOD_EMOJI} {label}",
                 value=f"{self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))} ({current}/{MOD_MESSAGE_REQUIREMENT})",
                 inline=False,
             )
@@ -419,10 +445,10 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     @staff_group.command(name="break", description="Put a staff member on break")
     @app_commands.checks.has_permissions(administrator=True)
     async def staff_break(self, interaction: discord.Interaction, user: discord.Member):
-        role_type = self._resolve_role_type(user)
+        role_types = self._resolve_role_types(user)
         row = self._registered_row(user.id)
-        stored_role = role_type or (row[0] if row else None)
-        if stored_role is None:
+        stored_roles = role_types or (self._parse_role_types(row[0]) if row else [])
+        if not stored_roles:
             await interaction.response.send_message("That user has no trackable staff role.", ephemeral=True)
             return
 
@@ -447,13 +473,13 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 is_on_break = 1,
                 saved_roles = excluded.saved_roles
             """,
-            (user.id, stored_role, saved_roles),
+            (user.id, self._serialize_role_types(stored_roles), saved_roles),
         )
         self.conn.commit()
 
         embed = discord.Embed(title="Staff Break Enabled", color=discord.Color.orange())
         embed.add_field(name="User", value=user.mention, inline=True)
-        embed.add_field(name="Stored Role", value=stored_role.upper(), inline=True)
+        embed.add_field(name="Stored Roles", value=", ".join(role.upper() for role in stored_roles), inline=True)
         embed.add_field(name="Break Role", value=break_role.mention, inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
