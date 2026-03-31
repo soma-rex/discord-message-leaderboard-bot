@@ -276,6 +276,57 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
         await self.view.resolve_turn(interaction.channel)
 
 
+class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
+    buy_in = discord.ui.TextInput(
+        label="Buy-in",
+        placeholder="Enter the table buy-in",
+        required=True,
+        max_length=6,
+    )
+    raise_cap = discord.ui.TextInput(
+        label="Raise cap",
+        placeholder="Leave blank for no cap",
+        required=False,
+        max_length=6,
+    )
+
+    def __init__(self, cog: "PokerCog"):
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction):
+        buy_in_raw = str(self.buy_in).strip()
+        raise_cap_raw = str(self.raise_cap).strip()
+
+        if not buy_in_raw.isdigit():
+            await interaction.response.send_message("Buy-in must be a whole number.", ephemeral=True)
+            return
+
+        buy_in = int(buy_in_raw)
+        if buy_in <= 0 or buy_in > 100000:
+            await interaction.response.send_message("Buy-in must be between 1 and 100000.", ephemeral=True)
+            return
+
+        raise_cap = None
+        if raise_cap_raw:
+            if not raise_cap_raw.isdigit():
+                await interaction.response.send_message("Raise cap must be a whole number.", ephemeral=True)
+                return
+            raise_cap = int(raise_cap_raw)
+            if raise_cap <= 0 or raise_cap > 100000:
+                await interaction.response.send_message("Raise cap must be between 1 and 100000.", ephemeral=True)
+                return
+
+        preset = TABLE_PRESETS["custom"]
+        await self.cog._open_table(
+            interaction,
+            table_key="custom",
+            table_name=preset["name"],
+            buy_in=buy_in,
+            raise_cap=raise_cap,
+        )
+
+
 # ─────────────────────────────────────────────
 # SHOWDOWN
 # ─────────────────────────────────────────────
@@ -805,11 +856,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         await interaction.response.send_message(embed=embed)
 
     @poker_group.command(name="create", description="Create a poker table")
-    @app_commands.describe(
-        table="Choose which table to open",
-        buy_in="Nebula Syndicate only: set the custom buy-in",
-        raise_cap="Nebula Syndicate only: optional raise cap, leave empty for no cap",
-    )
+    @app_commands.describe(table="Choose which table to open")
     @app_commands.choices(
         table=[
             app_commands.Choice(name="Dragon's Vault (10,000 buy-in, 5,000 max raise)", value="high_rollers"),
@@ -821,34 +868,17 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         self,
         interaction: discord.Interaction,
         table: app_commands.Choice[str],
-        buy_in: app_commands.Range[int, 1, 100000] | None = None,
-        raise_cap: app_commands.Range[int, 1, 100000] | None = None,
     ):
         preset = TABLE_PRESETS[table.value]
         if table.value == "custom":
-            if buy_in is None:
-                await interaction.response.send_message(
-                    "Nebula Syndicate needs a custom buy-in.",
-                    ephemeral=True,
-                )
-                return
-            actual_buy_in = buy_in
-            actual_raise_cap = raise_cap
-        else:
-            if buy_in is not None or raise_cap is not None:
-                await interaction.response.send_message(
-                    "Custom buy-in and raise cap are only for Nebula Syndicate.",
-                    ephemeral=True,
-                )
-                return
-            actual_buy_in = preset["buy_in"]
-            actual_raise_cap = preset["raise_cap"]
+            await interaction.response.send_modal(CustomTableModal(self))
+            return
         await self._open_table(
             interaction,
             table_key=table.value,
             table_name=preset["name"],
-            buy_in=actual_buy_in,
-            raise_cap=actual_raise_cap,
+            buy_in=preset["buy_in"],
+            raise_cap=preset["raise_cap"],
         )
 
     @poker_group.command(name="join", description="Join the current poker table")
