@@ -1,6 +1,8 @@
 """
 cogs/admin.py  –  Admin commands: resetuser, resetall, debug, findreaction
 """
+from collections import defaultdict, deque
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -13,6 +15,7 @@ class AdminCog(commands.Cog, name="Admin"):
         self.bot    = bot
         self.conn   = bot.conn
         self.cursor = bot.cursor
+        self.recent_reactions: dict[int, deque] = defaultdict(lambda: deque(maxlen=5))
 
     admin_group = app_commands.Group(name="admin", description="Administrative commands")
 
@@ -81,6 +84,44 @@ class AdminCog(commands.Cog, name="Admin"):
             await interaction.followup.send(
                 f"No messages with {emoji} found in {channel.mention}.", ephemeral=True
             )
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        user = self.bot.get_user(payload.user_id)
+        if user is None:
+            try:
+                user = await self.bot.fetch_user(payload.user_id)
+            except discord.HTTPException:
+                return
+
+        if user.bot:
+            return
+
+        guild_id = payload.guild_id or "@me"
+        jump_url = f"https://discord.com/channels/{guild_id}/{payload.channel_id}/{payload.message_id}"
+        self.recent_reactions[payload.channel_id].append(
+            {
+                "user_id": payload.user_id,
+                "emoji": str(payload.emoji),
+                "message_id": payload.message_id,
+                "jump_url": jump_url,
+            }
+        )
+
+    @commands.command(name="recentreactor")
+    @commands.has_permissions(administrator=True)
+    async def recent_reactor(self, ctx: commands.Context):
+        recent = self.recent_reactions.get(ctx.channel.id)
+        if not recent:
+            await ctx.send("No recent non-bot reactions tracked in this channel yet.")
+            return
+
+        latest = recent[-1]
+        embed = discord.Embed(title="Most Recent Reaction", color=discord.Color.blurple())
+        embed.add_field(name="User", value=f"<@{latest['user_id']}>", inline=True)
+        embed.add_field(name="Emoji", value=latest["emoji"], inline=True)
+        embed.add_field(name="Message", value=latest["jump_url"], inline=False)
+        await ctx.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):
