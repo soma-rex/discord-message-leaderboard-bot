@@ -114,6 +114,7 @@ async def setup_hook():
     await bot.load_extension("cogs.config_cog")
     await bot.load_extension("cogs.admin")
     await bot.load_extension("cogs.ai_cog")
+    await bot.load_extension("cogs.staff_logger")
 
 bot.setup_hook = setup_hook
 

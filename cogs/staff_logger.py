@@ -1,0 +1,462 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+import sqlite3
+
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
+
+
+EVENT_EMOJI = "<:eventcard:1488562862262718708>"
+GIVEAWAY_EMOJI = "<:giveaway:1488562864926101637>"
+
+REPORT_CHANNEL_ID = 1181356533557239818
+
+GIVEAWAY_MANAGER_ROLE_ID = 996372025486622760
+EVENT_MANAGER_ROLE_ID = 996372072961937450
+MODERATOR_ROLE_ID = 996371883807219803
+TRIAL_MODERATOR_ROLE_ID = 996371928493330534
+TOUCHING_GRASS_ROLE_ID = 1128285153135955978
+
+GMAN_TRIGGER_ROLE_IDS = {
+    1107542167746007080,
+    996367555323248690,
+    1152283755336183828,
+}
+EMAN_TRIGGER_ROLE_IDS = {996367564508758026}
+
+PING_REQUIREMENT = 7
+MOD_MESSAGE_REQUIREMENT = 200
+
+ROLE_PRIORITY = (
+    ("gman", GIVEAWAY_MANAGER_ROLE_ID),
+    ("eman", EVENT_MANAGER_ROLE_ID),
+    ("mod", MODERATOR_ROLE_ID),
+    ("tmod", TRIAL_MODERATOR_ROLE_ID),
+)
+STAFF_ROLE_IDS = {role_id for _, role_id in ROLE_PRIORITY}
+STAFF_ROLE_IDS.add(TOUCHING_GRASS_ROLE_ID)
+PREFIXES = (";", "&")
+
+
+class StaffLoggerCog(commands.Cog, name="Staff Logger"):
+    staff_group = app_commands.Group(name="staff", description="Staff management commands")
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.conn: sqlite3.Connection = bot.conn
+        self.cursor: sqlite3.Cursor = bot.cursor
+        self._ensure_tables()
+        self._ensure_active_week()
+        self.weekly_reset_loop.start()
+
+    def cog_unload(self):
+        self.weekly_reset_loop.cancel()
+
+    def _ensure_tables(self):
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS staff_users (
+                user_id INTEGER PRIMARY KEY,
+                role_type TEXT NOT NULL,
+                is_on_break INTEGER NOT NULL DEFAULT 0,
+                saved_roles TEXT
+            )
+            """
+        )
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_logs (
+                user_id INTEGER NOT NULL,
+                week_id TEXT NOT NULL,
+                gman_count INTEGER NOT NULL DEFAULT 0,
+                eman_count INTEGER NOT NULL DEFAULT 0,
+                mod_message_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, week_id)
+            )
+            """
+        )
+        self.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS staff_config (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+            """
+        )
+        self.conn.commit()
+
+    def _config_get(self, key: str, default: str | None = None) -> str | None:
+        self.cursor.execute("SELECT value FROM staff_config WHERE key = ?", (key,))
+        row = self.cursor.fetchone()
+        return row[0] if row else default
+
+    def _config_set(self, key: str, value: str):
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO staff_config (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        self.conn.commit()
+
+    def _current_week_id(self) -> str:
+        now = datetime.now(timezone.utc)
+        monday = now - timedelta(days=now.weekday())
+        monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
+        return monday.strftime("%Y-%m-%d")
+
+    def _week_label(self, week_id: str) -> str:
+        start = datetime.strptime(week_id, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end = start + timedelta(days=6)
+        return f"{start.strftime('%d %b')} - {end.strftime('%d %b %Y')} UTC"
+
+    def _ensure_active_week(self):
+        active_week = self._config_get("active_week_id")
+        if not active_week:
+            self._config_set("active_week_id", self._current_week_id())
+
+    def _registered_row(self, user_id: int):
+        self.cursor.execute(
+            "SELECT role_type, is_on_break, saved_roles FROM staff_users WHERE user_id = ?",
+            (user_id,),
+        )
+        return self.cursor.fetchone()
+
+    def _resolve_role_type(self, member: discord.Member) -> str | None:
+        role_ids = {role.id for role in member.roles}
+        for role_type, role_id in ROLE_PRIORITY:
+            if role_id in role_ids:
+                return role_type
+        return None
+
+    def _mention_line(self, user_id: int, name: str) -> str:
+        return f"{name} (<@{user_id}>)"
+
+    def _requirement_for(self, role_type: str) -> int:
+        return PING_REQUIREMENT if role_type in {"gman", "eman"} else MOD_MESSAGE_REQUIREMENT
+
+    def _count_for(self, log_row: sqlite3.Row | tuple | None, role_type: str) -> int:
+        if not log_row:
+            return 0
+        if role_type == "gman":
+            return log_row[0]
+        if role_type == "eman":
+            return log_row[1]
+        return log_row[2]
+
+    def _progress_bar(self, current: int, target: int, *, is_on_break: bool = False, length: int = 5) -> str:
+        if is_on_break:
+            return "🟦" * length
+        filled = min(length, int((current / target) * length)) if target > 0 else length
+        return ("🟩" * filled) + ("🟥" * (length - filled))
+
+    def _section_title(self, role_type: str) -> str:
+        mapping = {
+            "gman": f"{GIVEAWAY_EMOJI} Giveaway Managers",
+            "eman": f"{EVENT_EMOJI} Event Managers",
+            "mod": "🛡️ Moderators",
+            "tmod": "🛡️ Trial Moderators",
+        }
+        return mapping[role_type]
+
+    def _upsert_staff_user(self, user_id: int, role_type: str, *, is_on_break: int = 0, saved_roles: str | None = None):
+        existing = self._registered_row(user_id)
+        saved_value = saved_roles if saved_roles is not None else (existing[2] if existing else None)
+        break_value = is_on_break if existing is None else (existing[1] if saved_roles is None and is_on_break == 0 else is_on_break)
+        self.cursor.execute(
+            """
+            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                role_type = excluded.role_type,
+                is_on_break = excluded.is_on_break,
+                saved_roles = excluded.saved_roles
+            """,
+            (user_id, role_type, break_value, saved_value),
+        )
+        self.conn.commit()
+
+    def _ensure_weekly_row(self, user_id: int) -> str:
+        week_id = self._config_get("active_week_id", self._current_week_id())
+        self.cursor.execute(
+            """
+            INSERT OR IGNORE INTO weekly_logs (user_id, week_id, gman_count, eman_count, mod_message_count)
+            VALUES (?, ?, 0, 0, 0)
+            """,
+            (user_id, week_id),
+        )
+        self.conn.commit()
+        return week_id
+
+    def _increment_log(self, user_id: int, field_name: str):
+        week_id = self._ensure_weekly_row(user_id)
+        self.cursor.execute(
+            f"UPDATE weekly_logs SET {field_name} = {field_name} + 1 WHERE user_id = ? AND week_id = ?",
+            (user_id, week_id),
+        )
+        self.conn.commit()
+
+    def _get_weekly_log(self, user_id: int, week_id: str | None = None):
+        target_week = week_id or self._config_get("active_week_id", self._current_week_id())
+        self.cursor.execute(
+            """
+            SELECT gman_count, eman_count, mod_message_count
+            FROM weekly_logs
+            WHERE user_id = ? AND week_id = ?
+            """,
+            (user_id, target_week),
+        )
+        return self.cursor.fetchone()
+
+    def _sync_member_registration(self, member: discord.Member):
+        row = self._registered_row(member.id)
+        current_role = self._resolve_role_type(member)
+        if row and row[1]:
+            return row
+        if current_role is None:
+            return None
+        self.cursor.execute(
+            """
+            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles)
+            VALUES (?, ?, 0, NULL)
+            ON CONFLICT(user_id) DO UPDATE SET role_type = excluded.role_type
+            """,
+            (member.id, current_role),
+        )
+        self.conn.commit()
+        return self._registered_row(member.id)
+
+    def _display_name(self, guild: discord.Guild | None, user_id: int, fallback: str | None = None) -> str:
+        if guild:
+            member = guild.get_member(user_id)
+            if member:
+                return member.display_name
+        return fallback or f"User {user_id}"
+
+    async def _send_weekly_report(self, report_week_id: str):
+        channel = self.bot.get_channel(REPORT_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(REPORT_CHANNEL_ID)
+            except discord.HTTPException:
+                return
+
+        guild = channel.guild if isinstance(channel, discord.TextChannel) else None
+        self.cursor.execute(
+            """
+            SELECT user_id, role_type, is_on_break
+            FROM staff_users
+            ORDER BY role_type, user_id
+            """
+        )
+        staff_rows = self.cursor.fetchall()
+        self.cursor.execute(
+            """
+            SELECT user_id, gman_count, eman_count, mod_message_count
+            FROM weekly_logs
+            WHERE week_id = ?
+            """,
+            (report_week_id,),
+        )
+        log_map = {row[0]: row[1:] for row in self.cursor.fetchall()}
+
+        sections: dict[str, list[str]] = {"gman": [], "eman": [], "mod": []}
+        for user_id, role_type, is_on_break in staff_rows:
+            if role_type not in {"gman", "eman", "mod", "tmod"}:
+                continue
+            counts = log_map.get(user_id)
+            current = self._count_for(counts, role_type)
+            requirement = self._requirement_for(role_type)
+            bar = self._progress_bar(current, requirement, is_on_break=bool(is_on_break))
+            label = self._display_name(guild, user_id)
+            target_text = "break" if is_on_break else f"{current}/{requirement}"
+            if role_type == "tmod":
+                label = f"{label} [Trial]"
+                section_key = "mod"
+            else:
+                section_key = role_type
+            sections[section_key].append(f"{label:<18} | {bar} ({target_text})")
+
+        embed = discord.Embed(
+            title="Weekly Staff Report",
+            description=f"Week: **{self._week_label(report_week_id)}**",
+            color=discord.Color.dark_teal(),
+        )
+
+        for role_type in ("gman", "eman", "mod"):
+            lines = sections[role_type] or ["No registered staff"]
+            embed.add_field(
+                name=self._section_title(role_type),
+                value="\n".join(lines),
+                inline=False,
+            )
+
+        embed.set_footer(text="🟩 complete • 🟥 not met • 🟦 break")
+        await channel.send(embed=embed)
+
+    async def _roll_week_if_needed(self):
+        current_week = self._current_week_id()
+        active_week = self._config_get("active_week_id", current_week)
+        if active_week == current_week:
+            return
+
+        await self._send_weekly_report(active_week)
+        self.cursor.execute("DELETE FROM weekly_logs WHERE week_id = ?", (active_week,))
+        self.conn.commit()
+        self._config_set("active_week_id", current_week)
+
+    @tasks.loop(minutes=1)
+    async def weekly_reset_loop(self):
+        await self._roll_week_if_needed()
+
+    @weekly_reset_loop.before_loop
+    async def before_weekly_reset_loop(self):
+        await self.bot.wait_until_ready()
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        row = self._registered_row(after.id)
+        if row and row[1]:
+            return
+        role_type = self._resolve_role_type(after)
+        if role_type:
+            self._upsert_staff_user(after.id, role_type)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.guild:
+            return
+        if message.content.startswith(PREFIXES):
+            return
+
+        row = self._sync_member_registration(message.author)
+        if not row or row[1]:
+            return
+
+        role_type = row[0]
+        mentioned_role_ids = {role.id for role in message.role_mentions}
+
+        if role_type == "gman" and mentioned_role_ids & GMAN_TRIGGER_ROLE_IDS:
+            self._increment_log(message.author.id, "gman_count")
+        elif role_type == "eman" and mentioned_role_ids & EMAN_TRIGGER_ROLE_IDS:
+            self._increment_log(message.author.id, "eman_count")
+        elif role_type in {"mod", "tmod"}:
+            self._increment_log(message.author.id, "mod_message_count")
+
+    @app_commands.command(name="register", description="Register yourself in the staff logger")
+    async def register(self, interaction: discord.Interaction):
+        role_type = self._resolve_role_type(interaction.user)
+        if role_type is None:
+            await interaction.response.send_message(
+                "You do not have a trackable staff role.",
+                ephemeral=True,
+            )
+            return
+
+        self._upsert_staff_user(interaction.user.id, role_type)
+        embed = discord.Embed(title="Staff Registration", color=discord.Color.green())
+        embed.add_field(name="Role Type", value=role_type.upper(), inline=True)
+        embed.add_field(name="Week", value=self._config_get("active_week_id", self._current_week_id()), inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    def _build_progress_embed(self, member: discord.Member) -> discord.Embed | None:
+        row = self._sync_member_registration(member)
+        if not row:
+            return None
+
+        role_type, is_on_break, _ = row
+        logs = self._get_weekly_log(member.id)
+        embed = discord.Embed(
+            title="Weekly Progress",
+            description=f"Tracking week: **{self._week_label(self._config_get('active_week_id', self._current_week_id()))}**",
+            color=discord.Color.blurple(),
+        )
+        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+
+        if role_type == "gman":
+            current = self._count_for(logs, role_type)
+            embed.add_field(
+                name=f"{GIVEAWAY_EMOJI} Giveaway Managers",
+                value=f"{self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} ({current}/{PING_REQUIREMENT})",
+                inline=False,
+            )
+        elif role_type == "eman":
+            current = self._count_for(logs, role_type)
+            embed.add_field(
+                name=f"{EVENT_EMOJI} Event Managers",
+                value=f"{self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} ({current}/{PING_REQUIREMENT})",
+                inline=False,
+            )
+        else:
+            current = self._count_for(logs, role_type)
+            label = "Trial Moderators" if role_type == "tmod" else "Moderators"
+            embed.add_field(
+                name=f"🛡️ {label}",
+                value=f"{self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))} ({current}/{MOD_MESSAGE_REQUIREMENT})",
+                inline=False,
+            )
+
+        if is_on_break:
+            embed.add_field(name="Status", value="🟦 On break", inline=False)
+        return embed
+
+    @app_commands.command(name="weeklyprogress", description="Show your weekly staff progress")
+    async def weekly_progress_slash(self, interaction: discord.Interaction):
+        embed = self._build_progress_embed(interaction.user)
+        if embed is None:
+            await interaction.response.send_message("You are not registered in the staff logger.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="weeklyprogress")
+    async def weekly_progress_prefix(self, ctx: commands.Context):
+        embed = self._build_progress_embed(ctx.author)
+        if embed is None:
+            await ctx.send("You are not registered in the staff logger.")
+            return
+        await ctx.send(embed=embed)
+
+    @staff_group.command(name="break", description="Put a staff member on break")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def staff_break(self, interaction: discord.Interaction, user: discord.Member):
+        role_type = self._resolve_role_type(user)
+        row = self._registered_row(user.id)
+        stored_role = role_type or (row[0] if row else None)
+        if stored_role is None:
+            await interaction.response.send_message("That user has no trackable staff role.", ephemeral=True)
+            return
+
+        removed_roles = [role for role in user.roles if role.id in STAFF_ROLE_IDS and role.id != TOUCHING_GRASS_ROLE_ID]
+        break_role = interaction.guild.get_role(TOUCHING_GRASS_ROLE_ID)
+        if break_role is None:
+            await interaction.response.send_message("Touching Grass role not found.", ephemeral=True)
+            return
+
+        if removed_roles:
+            await user.remove_roles(*removed_roles, reason="Staff break enabled")
+        if break_role not in user.roles:
+            await user.add_roles(break_role, reason="Staff break enabled")
+
+        saved_roles = ",".join(str(role.id) for role in removed_roles)
+        self.cursor.execute(
+            """
+            INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles)
+            VALUES (?, ?, 1, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                role_type = excluded.role_type,
+                is_on_break = 1,
+                saved_roles = excluded.saved_roles
+            """,
+            (user.id, stored_role, saved_roles),
+        )
+        self.conn.commit()
+
+        embed = discord.Embed(title="Staff Break Enabled", color=discord.Color.orange())
+        embed.add_field(name="User", value=user.mention, inline=True)
+        embed.add_field(name="Stored Role", value=stored_role.upper(), inline=True)
+        embed.add_field(name="Break Role", value=break_role.mention, inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(StaffLoggerCog(bot))
