@@ -154,7 +154,11 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             await interaction.response.send_message(message, ephemeral=True)
         return
     if isinstance(error, app_commands.errors.CheckFailure):
-        message = "Only the bot owner can use this command." if getattr(interaction.command, "name", "") == "fool" else "You need admin permission to use this command."
+        message = (
+            "Only the bot owner can use this command."
+            if getattr(interaction.command, "name", "") in {"fool", "repeatmsg"}
+            else "You need admin permission to use this command."
+        )
         if interaction.response.is_done():
             await interaction.followup.send(message, ephemeral=True)
         else:

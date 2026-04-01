@@ -32,7 +32,8 @@ GMAN_TRIGGER_ROLE_IDS = {
 EMAN_TRIGGER_ROLE_IDS = {996367564508758026}
 
 PING_REQUIREMENT = 7
-MOD_MESSAGE_REQUIREMENT = 200
+MOD_MESSAGE_REQUIREMENT = 300
+TRIAL_MOD_MESSAGE_REQUIREMENT = 500
 
 ROLE_PRIORITY = (
     ("gman", GIVEAWAY_MANAGER_ROLE_ID),
@@ -235,7 +236,11 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         return f"{name} (<@{user_id}>)"
 
     def _requirement_for(self, role_type: str) -> int:
-        return PING_REQUIREMENT if role_type in {"gman", "eman"} else MOD_MESSAGE_REQUIREMENT
+        if role_type in {"gman", "eman"}:
+            return PING_REQUIREMENT
+        if role_type == "tmod":
+            return TRIAL_MOD_MESSAGE_REQUIREMENT
+        return MOD_MESSAGE_REQUIREMENT
 
     def _count_for(self, log_row: sqlite3.Row | tuple | None, role_type: str) -> int:
         if not log_row:
@@ -447,10 +452,12 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
             if {"mod", "tmod"} & set(role_types):
                 current = self._count_for(counts, "mod")
-                mod_label = f"{base_label} [Trial]" if "tmod" in role_types and "mod" not in role_types else base_label
+                mod_role_type = "tmod" if "tmod" in role_types and "mod" not in role_types else "mod"
+                mod_requirement = self._requirement_for(mod_role_type)
+                mod_label = f"{base_label} [Trial]" if mod_role_type == "tmod" else base_label
                 sections["mod"].append(
-                    f"{mod_label:<18} | {self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))} "
-                    f"({'break' if is_on_break else f'{current}/{MOD_MESSAGE_REQUIREMENT}'})"
+                    f"{mod_label:<18} | {self._progress_bar(current, mod_requirement, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{mod_requirement}'})"
                 )
 
         embed = discord.Embed(
@@ -464,7 +471,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 value="\n".join(sections[role_type]) or "No registered staff",
                 inline=False,
             )
-        embed.set_footer(text="Registered staff only • 🟩 complete • 🟥 not met • 🟦 break")
+        embed.set_footer(text="Registered staff only | complete | not met | break")
         return embed
 
     async def _build_staff_overview_embed_filtered(self, guild: discord.Guild, role_type: str) -> discord.Embed:
@@ -509,10 +516,12 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 )
             elif role_type == "mod" and {"mod", "tmod"} & set(role_types):
                 current = self._count_for(counts, "mod")
-                mod_label = f"{base_label} [Trial]" if "tmod" in role_types and "mod" not in role_types else base_label
+                mod_role_type = "tmod" if "tmod" in role_types and "mod" not in role_types else "mod"
+                mod_requirement = self._requirement_for(mod_role_type)
+                mod_label = f"{base_label} [Trial]" if mod_role_type == "tmod" else base_label
                 section_lines.append(
-                    f"{mod_label:<18} | {self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))} "
-                    f"({'break' if is_on_break else f'{current}/{MOD_MESSAGE_REQUIREMENT}'})"
+                    f"{mod_label:<18} | {self._progress_bar(current, mod_requirement, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{mod_requirement}'})"
                 )
 
         embed = discord.Embed(
@@ -525,7 +534,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             value="\n".join(section_lines) or "No registered staff",
             inline=False,
         )
-        embed.set_footer(text="Registered staff only â€¢ ðŸŸ© complete â€¢ ðŸŸ¥ not met â€¢ ðŸŸ¦ break")
+        embed.set_footer(text="Registered staff only | complete | not met | break")
         return embed
 
     async def _restore_expired_breaks(self):
@@ -631,9 +640,11 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
             if {"mod", "tmod"} & set(role_types):
                 current = self._count_for(counts, "mod")
-                bar = self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))
-                target_text = "break" if is_on_break else f"{current}/{MOD_MESSAGE_REQUIREMENT}"
-                mod_label = f"{base_label} [Trial]" if "tmod" in role_types and "mod" not in role_types else base_label
+                mod_role_type = "tmod" if "tmod" in role_types and "mod" not in role_types else "mod"
+                mod_requirement = self._requirement_for(mod_role_type)
+                bar = self._progress_bar(current, mod_requirement, is_on_break=bool(is_on_break))
+                target_text = "break" if is_on_break else f"{current}/{mod_requirement}"
+                mod_label = f"{base_label} [Trial]" if mod_role_type == "tmod" else base_label
                 sections["mod"].append(f"{mod_label:<18} | {bar} ({target_text})")
 
         embed = discord.Embed(
@@ -650,7 +661,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 inline=False,
             )
 
-        embed.set_footer(text="🟩 complete • 🟥 not met • 🟦 break")
+        embed.set_footer(text="complete | not met | break")
         await channel.send(embed=embed)
 
     async def _roll_week_if_needed(self):
@@ -759,10 +770,12 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             )
         if set(role_types) & {"mod", "tmod"}:
             current = self._count_for(logs, "mod")
-            label = "Moderators"
+            mod_role_type = "tmod" if "tmod" in role_types and "mod" not in role_types else "mod"
+            mod_requirement = self._requirement_for(mod_role_type)
+            label = "Trial Moderators" if mod_role_type == "tmod" else "Moderators"
             embed.add_field(
                 name=f"{MOD_EMOJI} {label}",
-                value=f"{self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))} ({current}/{MOD_MESSAGE_REQUIREMENT})",
+                value=f"{self._progress_bar(current, mod_requirement, is_on_break=bool(is_on_break))} ({current}/{mod_requirement})",
                 inline=False,
             )
 
@@ -1042,3 +1055,4 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(StaffLoggerCog(bot))
+

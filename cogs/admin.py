@@ -64,6 +64,7 @@ class AdminCog(commands.Cog, name="Admin"):
 
     @admin_group.command(name="repeatmsg", description="Send an admin message multiple times")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.check(lambda interaction: interaction.client.is_owner(interaction.user))
     async def repeat_message(
         self,
         interaction: discord.Interaction,
