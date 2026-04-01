@@ -2,6 +2,7 @@
 cogs/admin.py  –  Admin commands: resetuser, resetall, debug, findreaction
 """
 from collections import defaultdict, deque
+import asyncio
 import time
 
 import discord
@@ -11,6 +12,9 @@ from discord.ext import commands
 
 class AdminCog(commands.Cog, name="Admin"):
     """Administrative commands."""
+
+    MAX_REPEAT = 20
+    MIN_DELAY_SECONDS = 1.0
 
     def __init__(self, bot: commands.Bot):
         self.bot    = bot
@@ -57,6 +61,38 @@ class AdminCog(commands.Cog, name="Admin"):
         embed.add_field(name="Channel",
                         value=f"{interaction.channel.name}\nID: {interaction.channel.id}", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin_group.command(name="repeatmsg", description="Send an admin message multiple times")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def repeat_message(
+        self,
+        interaction: discord.Interaction,
+        times: app_commands.Range[int, 1, MAX_REPEAT],
+        delay: app_commands.Range[float, MIN_DELAY_SECONDS, 30.0],
+        message: str,
+    ):
+        if "@everyone" in message or "@here" in message:
+            await interaction.response.send_message(
+                "Global mentions are blocked for this command.",
+                ephemeral=True,
+            )
+            return
+
+        allowed_mentions = discord.AllowedMentions(
+            everyone=False,
+            roles=True,
+            users=True,
+        )
+
+        await interaction.response.send_message(
+            f"Sending your message {times} time(s) with a {delay:.1f}s delay.",
+            ephemeral=True,
+        )
+
+        for index in range(times):
+            await interaction.channel.send(message, allowed_mentions=allowed_mentions)
+            if index < times - 1:
+                await asyncio.sleep(delay)
 
     @app_commands.command(name="findreaction", description="Find messages with a specific reaction")
     @app_commands.checks.has_permissions(administrator=True)
@@ -132,6 +168,31 @@ class AdminCog(commands.Cog, name="Admin"):
         embed.add_field(name="Emoji", value=latest["emoji"], inline=True)
         embed.add_field(name="Message", value=latest["jump_url"], inline=False)
         await ctx.send(embed=embed)
+
+    @commands.command(name="p")
+    @commands.has_permissions(manage_messages=True)
+    async def purge_messages(self, ctx: commands.Context, amount: int):
+        if amount < 1 or amount > 100:
+            await ctx.send("Choose a number between 1 and 100.")
+            return
+
+        deleted = await ctx.channel.purge(limit=amount + 1)
+        confirmation = await ctx.send(f"Deleted {max(len(deleted) - 1, 0)} message(s).")
+        await asyncio.sleep(3)
+        await confirmation.delete()
+
+    @commands.command(name="bp")
+    @commands.has_permissions(manage_messages=True)
+    async def purge_recent_bot_messages(self, ctx: commands.Context):
+        cutoff = discord.utils.utcnow().timestamp() - 300
+
+        def is_recent_bot_message(message: discord.Message) -> bool:
+            return message.author.bot and message.created_at.timestamp() >= cutoff
+
+        deleted = await ctx.channel.purge(limit=250, check=is_recent_bot_message)
+        confirmation = await ctx.send(f"Deleted {len(deleted)} recent bot message(s).")
+        await asyncio.sleep(3)
+        await confirmation.delete()
 
 
 async def setup(bot: commands.Bot):
