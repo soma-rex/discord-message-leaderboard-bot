@@ -102,7 +102,7 @@ class AdminCog(commands.Cog, name="Admin"):
         jump_url = f"https://discord.com/channels/{guild_id}/{payload.channel_id}/{payload.message_id}"
         now = time.time()
         recent = self.recent_reactions[payload.channel_id]
-        while recent and now - recent[0]["timestamp"] > 60:
+        while recent and now - recent[0]["timestamp"] > 300:
             recent.popleft()
         recent.append(
             {
@@ -119,11 +119,11 @@ class AdminCog(commands.Cog, name="Admin"):
     async def recent_reactor(self, ctx: commands.Context):
         recent = self.recent_reactions.get(ctx.channel.id)
         now = time.time()
-        while recent and now - recent[0]["timestamp"] > 60:
+        while recent and now - recent[0]["timestamp"] > 300:
             recent.popleft()
 
         if not recent:
-            await ctx.send("No non-bot reactions were added in this channel during the last minute.")
+            await ctx.send("No non-bot reactions were added in this channel during the last 5 minutes.")
             return
 
         latest = recent[-1]
