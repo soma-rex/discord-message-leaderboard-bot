@@ -54,7 +54,7 @@ class StaffProgressView(discord.ui.View):
         self.requester_id = requester_id
 
     async def _swap_embed(self, interaction: discord.Interaction, role_type: str):
-        embed = await self.cog._build_staff_overview_embed(self.guild, role_type=role_type)
+        embed = await self.cog._build_staff_overview_embed_filtered(self.guild, role_type)
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -857,14 +857,16 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     @app_commands.command(name="staffprogress", description="Show all registered staff progress")
     @app_commands.checks.has_permissions(administrator=True)
     async def staff_progress_slash(self, interaction: discord.Interaction):
-        embed = await self._build_staff_overview_embed(interaction.guild)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        embed = await self._build_staff_overview_embed_filtered(interaction.guild, "mod")
+        view = StaffProgressView(self, interaction.guild, interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @commands.command(name="staffprogress")
     @commands.has_permissions(administrator=True)
     async def staff_progress_prefix(self, ctx: commands.Context):
-        embed = await self._build_staff_overview_embed(ctx.guild)
-        await ctx.send(embed=embed)
+        embed = await self._build_staff_overview_embed_filtered(ctx.guild, "mod")
+        view = StaffProgressView(self, ctx.guild, ctx.author.id)
+        await ctx.send(embed=embed, view=view)
 
     @app_commands.command(name="sotm", description="Award the SOTM role to up to 3 users")
     @app_commands.checks.has_permissions(administrator=True)
