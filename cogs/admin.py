@@ -177,7 +177,8 @@ class AdminCog(commands.Cog, name="Admin"):
             return
 
         deleted = await ctx.channel.purge(limit=amount + 1)
-        confirmation = await ctx.send(f"Deleted {max(len(deleted) - 1, 0)} message(s).")
+        purged_count = max(len(deleted) - 1, 0)
+        confirmation = await ctx.send(f"Purged {purged_count} messages.")
         await asyncio.sleep(3)
         await confirmation.delete()
 

@@ -46,6 +46,36 @@ STAFF_ROLE_IDS.add(TOUCHING_GRASS_ROLE_ID)
 PREFIXES = (";", "&")
 
 
+class StaffProgressView(discord.ui.View):
+    def __init__(self, cog: "StaffLoggerCog", guild: discord.Guild, requester_id: int):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.guild = guild
+        self.requester_id = requester_id
+
+    async def _swap_embed(self, interaction: discord.Interaction, role_type: str):
+        embed = await self.cog._build_staff_overview_embed(self.guild, role_type=role_type)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("Only the command user can use these buttons.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Mods", style=discord.ButtonStyle.primary)
+    async def mods_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._swap_embed(interaction, "mod")
+
+    @discord.ui.button(label="Gman", style=discord.ButtonStyle.secondary)
+    async def gman_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._swap_embed(interaction, "gman")
+
+    @discord.ui.button(label="Eman", style=discord.ButtonStyle.secondary)
+    async def eman_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._swap_embed(interaction, "eman")
+
+
 class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     staff_group = app_commands.Group(name="staff", description="Staff management commands")
 
@@ -435,6 +465,67 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 inline=False,
             )
         embed.set_footer(text="Registered staff only • 🟩 complete • 🟥 not met • 🟦 break")
+        return embed
+
+    async def _build_staff_overview_embed_filtered(self, guild: discord.Guild, role_type: str) -> discord.Embed:
+        active_week = self._config_get("active_week_id", self._current_week_id())
+        self.cursor.execute(
+            """
+            SELECT user_id, role_type, is_on_break
+            FROM staff_users
+            ORDER BY role_type, user_id
+            """
+        )
+        staff_rows = self.cursor.fetchall()
+        self.cursor.execute(
+            """
+            SELECT user_id, gman_count, eman_count, mod_message_count
+            FROM weekly_logs
+            WHERE week_id = ?
+            """,
+            (active_week,),
+        )
+        log_map = {row[0]: row[1:] for row in self.cursor.fetchall()}
+
+        section_lines: list[str] = []
+        for user_id, role_type_value, is_on_break in staff_rows:
+            role_types = self._parse_role_types(role_type_value)
+            if not role_types:
+                continue
+            counts = log_map.get(user_id)
+            base_label = await self._display_name_fixed(guild, user_id)
+
+            if role_type == "gman" and "gman" in role_types:
+                current = self._count_for(counts, "gman")
+                section_lines.append(
+                    f"{base_label:<18} | {self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{PING_REQUIREMENT}'})"
+                )
+            elif role_type == "eman" and "eman" in role_types:
+                current = self._count_for(counts, "eman")
+                section_lines.append(
+                    f"{base_label:<18} | {self._progress_bar(current, PING_REQUIREMENT, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{PING_REQUIREMENT}'})"
+                )
+            elif role_type == "mod" and {"mod", "tmod"} & set(role_types):
+                current = self._count_for(counts, "mod")
+                mod_label = f"{base_label} [Trial]" if "tmod" in role_types and "mod" not in role_types else base_label
+                section_lines.append(
+                    f"{mod_label:<18} | {self._progress_bar(current, MOD_MESSAGE_REQUIREMENT, is_on_break=bool(is_on_break))} "
+                    f"({'break' if is_on_break else f'{current}/{MOD_MESSAGE_REQUIREMENT}'})"
+                )
+
+        embed = discord.Embed(
+            title="Registered Staff Progress",
+            description=f"Week: **{self._week_label(active_week)}**",
+            color=discord.Color.teal(),
+        )
+        embed.add_field(
+            name=self._section_title(role_type),
+            value="\n".join(section_lines) or "No registered staff",
+            inline=False,
+        )
+        embed.set_footer(text="Registered staff only â€¢ ðŸŸ© complete â€¢ ðŸŸ¥ not met â€¢ ðŸŸ¦ break")
         return embed
 
     async def _restore_expired_breaks(self):
