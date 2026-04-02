@@ -19,7 +19,7 @@ HELP_PAGES = {
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
             ("Fun", "`/roast` `/recommend` `/lurking` `;bomb` `;roast` `;recommend`", False),
             ("Staff", "`/register` `/profile` `/weeklyprogress` `/staffprogress` `/sotm` `/staff break` `/staff endbreak`", False),
-            ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction`", False),
+            ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction` `/avatar` `/banner`", False),
         ],
     },
     "games": {
@@ -57,9 +57,9 @@ HELP_PAGES = {
         "description": "Administrative and moderation commands.",
         "fields": [
             ("Admin group", "`/admin resetuser`\n`/admin resetall`\n`/admin debug`", False),
-            ("Standalone admin", "`/findreaction`", False),
+            ("Standalone admin", "`/findreaction`\n`/avatar <user>`\n`/banner <user>`", False),
             ("Poker admin", "`/poker setchips`\n`/poker end`", False),
-            ("Permissions", "Most commands here require administrator permissions.", False),
+            ("Permissions", "Most commands here require administrator permissions. `/avatar` and `/banner` require the configured lookup role.", False),
         ],
     },
     "staff": {

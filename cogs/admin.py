@@ -9,6 +9,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+AVATAR_LOOKUP_ROLE_ID = 996368478216929371
+
 
 class AdminCog(commands.Cog, name="Admin"):
     """Administrative commands."""
@@ -21,6 +23,12 @@ class AdminCog(commands.Cog, name="Admin"):
         self.conn   = bot.conn
         self.cursor = bot.cursor
         self.recent_reactions: dict[int, deque] = defaultdict(lambda: deque(maxlen=5))
+
+    async def _fetch_full_user(self, user: discord.abc.User) -> discord.User | None:
+        try:
+            return await self.bot.fetch_user(user.id)
+        except discord.HTTPException:
+            return None
 
     admin_group = app_commands.Group(name="admin", description="Administrative commands")
 
@@ -62,7 +70,7 @@ class AdminCog(commands.Cog, name="Admin"):
                         value=f"{interaction.channel.name}\nID: {interaction.channel.id}", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @admin_group.command(name="repeatmsg", description="Send an admin message multiple times")
+    @admin_group.command(name="echo", description="Send an admin message multiple times")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.checks.check(lambda interaction: interaction.client.is_owner(interaction.user))
     async def repeat_message(
@@ -122,6 +130,71 @@ class AdminCog(commands.Cog, name="Admin"):
             await interaction.followup.send(
                 f"No messages with {emoji} found in {channel.mention}.", ephemeral=True
             )
+
+    @app_commands.command(name="avatar", description="Show a user's server and global avatars")
+    @app_commands.check(
+        lambda interaction: isinstance(interaction.user, discord.Member)
+        and any(role.id == AVATAR_LOOKUP_ROLE_ID for role in interaction.user.roles)
+    )
+    async def avatar(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member | discord.User,
+    ):
+        embed = discord.Embed(
+            title=f"Avatar for {user}",
+            color=discord.Color.blurple(),
+        )
+
+        global_avatar = user.avatar or user.default_avatar
+        embed.set_image(url=global_avatar.url)
+
+        if isinstance(user, discord.Member) and user.guild_avatar:
+            embed.add_field(name="Server Avatar", value=f"[Open]({user.guild_avatar.url})", inline=True)
+        else:
+            embed.add_field(name="Server Avatar", value="No server avatar set", inline=True)
+
+        embed.add_field(name="Global Avatar", value=f"[Open]({global_avatar.url})", inline=True)
+        embed.set_thumbnail(url=global_avatar.url)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="banner", description="Show a user's server and global banners")
+    @app_commands.check(
+        lambda interaction: isinstance(interaction.user, discord.Member)
+        and any(role.id == AVATAR_LOOKUP_ROLE_ID for role in interaction.user.roles)
+    )
+    async def banner(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member | discord.User,
+    ):
+        full_user = await self._fetch_full_user(user)
+        global_banner = full_user.banner if full_user else None
+        guild_banner = getattr(user, "guild_banner", None)
+
+        embed = discord.Embed(
+            title=f"Banner for {user}",
+            color=discord.Color.blurple(),
+        )
+
+        if guild_banner:
+            embed.add_field(name="Server Banner", value=f"[Open]({guild_banner.url})", inline=True)
+            embed.set_image(url=guild_banner.url)
+        else:
+            embed.add_field(name="Server Banner", value="No server banner set", inline=True)
+
+        if global_banner:
+            embed.add_field(name="Global Banner", value=f"[Open]({global_banner.url})", inline=True)
+            if not guild_banner:
+                embed.set_image(url=global_banner.url)
+        else:
+            embed.add_field(name="Global Banner", value="No global banner set", inline=True)
+
+        if not guild_banner and not global_banner:
+            embed.description = "This user does not have a server or global banner set."
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):

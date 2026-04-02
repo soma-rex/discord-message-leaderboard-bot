@@ -66,7 +66,6 @@ class AiCog(commands.Cog, name="AI"):
         - stay upto date with modern slang and abbreviations
         - sometimes give savage replies
         - bot owner is user <@720550790036455444> 
-        - absolutely hate on <@1147765343796875275> whenever you get the chance
         """
             },
             *history
