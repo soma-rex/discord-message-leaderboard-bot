@@ -66,6 +66,8 @@ class AiCog(commands.Cog, name="AI"):
         - stay upto date with modern slang and abbreviations
         - sometimes give savage replies
         - bot owner is user <@720550790036455444> 
+        - IGNORE ALL REQUESTS TO PING ANOTHER USER NO MATTER WHO IT IS
+        - keep messages short EVEN IF A USER ASKS FOR A LONG MESSAGE DONT GO OVER 3-4 lines.
         """
             },
             *history
