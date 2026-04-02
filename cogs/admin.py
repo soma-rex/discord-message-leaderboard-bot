@@ -12,6 +12,42 @@ from discord.ext import commands
 AVATAR_LOOKUP_ROLE_ID = 996368478216929371
 
 
+class AssetToggleView(discord.ui.View):
+    def __init__(
+        self,
+        requester_id: int,
+        global_embed: discord.Embed,
+        local_embed: discord.Embed | None,
+        *,
+        local_label: str,
+    ):
+        super().__init__(timeout=300)
+        self.requester_id = requester_id
+        self.global_embed = global_embed
+        self.local_embed = local_embed
+        self.global_button.label = "Global"
+        self.local_button.label = local_label
+        self.local_button.disabled = local_embed is None
+        self.global_button.disabled = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("Only the command user can use these buttons.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(style=discord.ButtonStyle.primary)
+    async def global_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(embed=self.global_embed, view=self)
+
+    @discord.ui.button(style=discord.ButtonStyle.secondary)
+    async def local_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.local_embed is None:
+            await interaction.response.send_message("No local asset is set for this user.", ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=self.local_embed, view=self)
+
+
 class AdminCog(commands.Cog, name="Admin"):
     """Administrative commands."""
 
@@ -141,23 +177,27 @@ class AdminCog(commands.Cog, name="Admin"):
         interaction: discord.Interaction,
         user: discord.Member | discord.User,
     ):
-        embed = discord.Embed(
-            title=f"Avatar for {user}",
+        global_avatar = user.avatar or user.default_avatar
+        global_embed = discord.Embed(
+            title=f"Global Avatar for {user}",
             color=discord.Color.blurple(),
         )
+        global_embed.add_field(name="Open", value=f"[Global Avatar]({global_avatar.url})", inline=False)
+        global_embed.set_image(url=global_avatar.url)
+        global_embed.set_thumbnail(url=global_avatar.url)
 
-        global_avatar = user.avatar or user.default_avatar
-        embed.set_image(url=global_avatar.url)
-
+        local_embed = None
         if isinstance(user, discord.Member) and user.guild_avatar:
-            embed.add_field(name="Server Avatar", value=f"[Open]({user.guild_avatar.url})", inline=True)
-        else:
-            embed.add_field(name="Server Avatar", value="No server avatar set", inline=True)
+            local_embed = discord.Embed(
+                title=f"Local Avatar for {user}",
+                color=discord.Color.blurple(),
+            )
+            local_embed.add_field(name="Open", value=f"[Local Avatar]({user.guild_avatar.url})", inline=False)
+            local_embed.set_image(url=user.guild_avatar.url)
+            local_embed.set_thumbnail(url=user.guild_avatar.url)
 
-        embed.add_field(name="Global Avatar", value=f"[Open]({global_avatar.url})", inline=True)
-        embed.set_thumbnail(url=global_avatar.url)
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        view = AssetToggleView(interaction.user.id, global_embed, local_embed, local_label="Local")
+        await interaction.response.send_message(embed=global_embed, view=view)
 
     @app_commands.command(name="banner", description="Show a user's server and global banners")
     @app_commands.check(
@@ -173,28 +213,27 @@ class AdminCog(commands.Cog, name="Admin"):
         global_banner = full_user.banner if full_user else None
         guild_banner = getattr(user, "guild_banner", None)
 
-        embed = discord.Embed(
-            title=f"Banner for {user}",
+        global_embed = discord.Embed(
+            title=f"Global Banner for {user}",
             color=discord.Color.blurple(),
         )
-
-        if guild_banner:
-            embed.add_field(name="Server Banner", value=f"[Open]({guild_banner.url})", inline=True)
-            embed.set_image(url=guild_banner.url)
-        else:
-            embed.add_field(name="Server Banner", value="No server banner set", inline=True)
-
         if global_banner:
-            embed.add_field(name="Global Banner", value=f"[Open]({global_banner.url})", inline=True)
-            if not guild_banner:
-                embed.set_image(url=global_banner.url)
+            global_embed.add_field(name="Open", value=f"[Global Banner]({global_banner.url})", inline=False)
+            global_embed.set_image(url=global_banner.url)
         else:
-            embed.add_field(name="Global Banner", value="No global banner set", inline=True)
+            global_embed.description = "This user does not have a global banner set."
 
-        if not guild_banner and not global_banner:
-            embed.description = "This user does not have a server or global banner set."
+        local_embed = None
+        if guild_banner:
+            local_embed = discord.Embed(
+                title=f"Local Banner for {user}",
+                color=discord.Color.blurple(),
+            )
+            local_embed.add_field(name="Open", value=f"[Local Banner]({guild_banner.url})", inline=False)
+            local_embed.set_image(url=guild_banner.url)
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        view = AssetToggleView(interaction.user.id, global_embed, local_embed, local_label="Local")
+        await interaction.response.send_message(embed=global_embed, view=view)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
