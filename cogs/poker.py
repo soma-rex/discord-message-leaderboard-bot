@@ -354,10 +354,12 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
 
 
 class PokerBetView(discord.ui.View):
-    def __init__(self, channel_id: int, cog: "PokerCog"):
+    def __init__(self, channel_id: int, cog: "PokerCog", *, hand_number: int, expected_user_id: int):
         super().__init__(timeout=TURN_TIMEOUT_SECONDS)
         self.channel_id = channel_id
         self.cog = cog
+        self.hand_number = hand_number
+        self.expected_user_id = expected_user_id
 
     def get_game(self) -> dict | None:
         return self.cog.poker_games.get(self.channel_id)
@@ -366,10 +368,14 @@ class PokerBetView(discord.ui.View):
         game = self.get_game()
         if not game or not game["hand_active"]:
             return None, None, "No active hand."
+        if game["hand_number"] != self.hand_number:
+            return game, None, "That action prompt belongs to an older hand. Use the newest poker message."
         action_message = game.get("action_message")
         if action_message is not None and interaction.message is not None and interaction.message.id != action_message.id:
             return game, None, "That action prompt is out of date. Use the newest poker message."
         current_uid = game["player_order"][game["turn_index"]]
+        if current_uid != self.expected_user_id:
+            return game, None, "That action prompt is out of date. Use the newest poker message."
         if interaction.user.id != current_uid:
             return game, None, "It's not your turn."
         player = game["players"][interaction.user.id]
@@ -397,8 +403,12 @@ class PokerBetView(discord.ui.View):
         game = self.get_game()
         if not game or not game["hand_active"]:
             return
+        if game["hand_number"] != self.hand_number:
+            return
 
         current_uid = game["player_order"][game["turn_index"]]
+        if current_uid != self.expected_user_id:
+            return
         player = game["players"][current_uid]
         if not player["in_current_hand"] or player["folded"] or player["all_in"]:
             return
@@ -569,7 +579,7 @@ class PokerBetView(discord.ui.View):
         await self._announce_action(interaction.channel, interaction.user, f"called **{amount}**{suffix}.")
         await self.resolve_turn(interaction.channel)
 
-    @discord.ui.button(label="Custom Raise", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Raise", style=discord.ButtonStyle.success, row=1)
     async def raise_bet(self, interaction: discord.Interaction, button: discord.ui.Button):
         game, player, error = self._guard(interaction)
         if error:
@@ -859,7 +869,12 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
 
     async def _send_turn_prompt(self, channel: discord.TextChannel, game: dict, mention_user_id: int) -> None:
         current_message = game.get("action_message")
-        view = PokerBetView(channel.id, self)
+        view = PokerBetView(
+            channel.id,
+            self,
+            hand_number=game["hand_number"],
+            expected_user_id=mention_user_id,
+        )
         if current_message is not None:
             try:
                 await current_message.edit(
