@@ -532,6 +532,10 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         self.cursor.execute(f"UPDATE staff_users SET {field_name} = {field_name} + 1 WHERE user_id = ?", (user_id,))
         self.conn.commit()
 
+    def _set_total_stat(self, user_id: int, field_name: str, value: int):
+        self.cursor.execute(f"UPDATE staff_users SET {field_name} = ? WHERE user_id = ?", (value, user_id))
+        self.conn.commit()
+
     def _set_profile_field(self, user_id: int, field_name: str, value: str | None):
         self.cursor.execute(f"UPDATE staff_users SET {field_name} = ? WHERE user_id = ?", (value, user_id))
         self.conn.commit()
@@ -571,6 +575,15 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         )
         return lowered.endswith(direct_suffixes) or any(host in lowered for host in trusted_hosts)
 
+    @staticmethod
+    def _is_supported_gif_page_url(value: str) -> bool:
+        lowered = value.lower().strip()
+        supported_pages = (
+            "tenor.com/view/",
+            "giphy.com/gifs/",
+        )
+        return any(part in lowered for part in supported_pages)
+
     def _normalize_profile_image_url(self, value: str | None) -> tuple[str | None, str | None]:
         cleaned = (value or "").strip().strip("<>").strip()
         if not cleaned:
@@ -578,16 +591,16 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         if not self._is_valid_image_url(cleaned):
             return None, "That image URL is invalid. Please use a full `http://` or `https://` link."
         lowered = cleaned.lower()
-        common_page_links = (
-            "tenor.com/view/",
-            "giphy.com/gifs/",
-            "imgur.com/gallery/",
-            "imgur.com/a/",
-        )
+        if self._is_supported_gif_page_url(cleaned):
+            return cleaned, (
+                "Saved that GIF page link. If Discord can't render it as the banner image, "
+                "your profile will still show a clickable GIF link."
+            )
+        common_page_links = ("imgur.com/gallery/", "imgur.com/a/")
         if any(part in lowered for part in common_page_links):
             return None, (
-                "That looks like a page link, not a direct image or GIF. "
-                "Use the direct media URL ending in `.png`, `.jpg`, `.webp`, or `.gif`."
+                "That looks like a gallery page, not a direct image or GIF. "
+                "Use a direct media URL ending in `.png`, `.jpg`, `.webp`, or `.gif`."
             )
         if not self._looks_like_direct_image_url(cleaned):
             return cleaned, (
@@ -677,8 +690,10 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             f"{EVENT_EMOJI} Event pings: **{total_eman}**\n"
             f"{MOD_EMOJI} Mod messages: **{total_mod}**"
         ), inline=False)
-        if profile_image_url:
+        if profile_image_url and self._looks_like_direct_image_url(profile_image_url):
             embed.set_image(url=profile_image_url)
+        elif profile_image_url:
+            embed.add_field(name="Banner / GIF", value=f"[Open media]({profile_image_url})", inline=False)
         return embed
 
     async def _build_staff_overview_embed(self, guild: discord.Guild) -> discord.Embed:
@@ -1167,6 +1182,91 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         embed = await self._build_staff_overview_embed_filtered(ctx.guild, "mod")
         view = StaffProgressView(self, ctx.guild, ctx.author.id)
         await ctx.send(embed=embed, view=view)
+
+    @app_commands.command(name="rolepingcount", description="Count how many times a user pinged a role from message history")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def role_ping_count(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        role: discord.Role,
+        days: app_commands.Range[int, 1, 365] = 30,
+        channel: discord.TextChannel | None = None,
+    ):
+        await interaction.response.defer()
+
+        after = datetime.now(timezone.utc) - timedelta(days=days)
+        channels: list[discord.TextChannel]
+        if channel is not None:
+            channels = [channel]
+        else:
+            channels = [text_channel for text_channel in interaction.guild.text_channels]
+
+        count = 0
+        scanned_messages = 0
+        scanned_channels = 0
+        skipped_channels: list[str] = []
+
+        for target_channel in channels:
+            permissions = target_channel.permissions_for(interaction.guild.me)
+            if not permissions.read_message_history or not permissions.view_channel:
+                skipped_channels.append(target_channel.mention)
+                continue
+
+            scanned_channels += 1
+            try:
+                async for message in target_channel.history(limit=None, after=after, oldest_first=False):
+                    scanned_messages += 1
+                    if message.author.id != user.id:
+                        continue
+                    if any(mentioned_role.id == role.id for mentioned_role in message.role_mentions):
+                        count += 1
+            except discord.Forbidden:
+                skipped_channels.append(target_channel.mention)
+
+        embed = discord.Embed(title="Role Ping Count", color=discord.Color.blurple())
+        embed.add_field(name="User", value=user.mention, inline=True)
+        embed.add_field(name="Role", value=role.mention, inline=True)
+        embed.add_field(name="Window", value=f"Last {days} day(s)", inline=True)
+        embed.add_field(name="Matches", value=str(count), inline=True)
+        embed.add_field(name="Channels Scanned", value=str(scanned_channels), inline=True)
+        embed.add_field(name="Messages Scanned", value=str(scanned_messages), inline=True)
+        if channel is not None:
+            embed.add_field(name="Channel Filter", value=channel.mention, inline=False)
+        if skipped_channels:
+            embed.add_field(
+                name="Skipped Channels",
+                value=", ".join(skipped_channels[:10]) + ("..." if len(skipped_channels) > 10 else ""),
+                inline=False,
+            )
+        embed.set_footer(text="Counts are based on currently accessible message history only.")
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="editlifetimestats", description="Admin only: set lifetime profile totals")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def edit_lifetime_stats(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        gman: app_commands.Range[int, 0, 1000000],
+        eman: app_commands.Range[int, 0, 1000000],
+        mod: app_commands.Range[int, 0, 1000000],
+    ):
+        if not self._is_registered(user.id):
+            await interaction.response.send_message("That user is not registered in the staff logger.", ephemeral=True)
+            return
+
+        self._set_total_stat(user.id, "total_gman_count", gman)
+        self._set_total_stat(user.id, "total_eman_count", eman)
+        self._set_total_stat(user.id, "total_mod_message_count", mod)
+
+        embed = self._build_profile_embed(user)
+        response = discord.Embed(title="Lifetime Stats Updated", color=discord.Color.green())
+        response.add_field(name="User", value=user.mention, inline=True)
+        response.add_field(name="Giveaway Pings", value=str(gman), inline=True)
+        response.add_field(name="Event Pings", value=str(eman), inline=True)
+        response.add_field(name="Mod Messages", value=str(mod), inline=True)
+        await interaction.response.send_message("Updated the user's lifetime stats.", embeds=[response, embed] if embed else [response])
 
     @app_commands.command(name="sotm", description="Award the SOTM role to up to 3 users")
     @app_commands.checks.has_permissions(administrator=True)
