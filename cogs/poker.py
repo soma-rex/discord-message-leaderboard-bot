@@ -65,7 +65,7 @@ TABLE_PRESETS = {
 
 TURN_TIMEOUT_SECONDS = 300
 INACTIVITY_TIMEOUT_SECONDS = 1800
-HAND_START_DELAY_SECONDS = 5
+HAND_START_DELAY_SECONDS = 15
 
 
 def is_owner(interaction: discord.Interaction) -> bool:
@@ -178,6 +178,11 @@ def eligible_table_players(game: dict) -> list[int]:
 def build_waiting_embed(game: dict) -> discord.Embed:
     raise_cap = game["raise_cap"]
     raise_cap_text = f"**{raise_cap}** {CHIP_EMOJI}" if raise_cap is not None else "**No cap**"
+    next_round_text = ""
+    next_hand_starts_at = game.get("next_hand_starts_at")
+    if game["started"] and next_hand_starts_at:
+        remaining = max(0, int(round(next_hand_starts_at - time.time())))
+        next_round_text = f"\nNext round starts in **{remaining}s**."
     embed = discord.Embed(
         title=f"{SPADE_EMOJI} {HEART_EMOJI}  {game['table_name']}  {DIAM_EMOJI} {CLUB_EMOJI}",
         color=discord.Color.blurple(),
@@ -186,6 +191,7 @@ def build_waiting_embed(game: dict) -> discord.Embed:
             f"Raise cap: {raise_cap_text}\n\n"
             "Use `/poker join` to buy into the table.\n"
             "Use `/poker start` once, then hands roll automatically until the table ends."
+            f"{next_round_text}"
         ),
     )
     return embed
@@ -222,6 +228,8 @@ def build_players_embed(game: dict) -> discord.Embed:
         stack_text = f"stack **{player['stack']}** {CHIP_EMOJI}"
         if player["stack"] <= 0:
             status = "busted"
+        elif player.get("leaving_after_hand"):
+            status = "leaving after this hand"
         elif not game["hand_active"]:
             status = "ready for next hand"
         elif not player["in_current_hand"]:
@@ -391,7 +399,7 @@ class PokerBetView(discord.ui.View):
         self._advance_turn_index(game)
         self.cog._touch_game(game)
 
-        channel = self.cog.bot.get_channel(self.channel_id)
+        channel = await self.cog._get_channel(self.channel_id)
         if channel is None:
             return
 
@@ -606,6 +614,32 @@ class PokerBetView(discord.ui.View):
             return
         await interaction.response.send_message(embed=build_players_embed(game), ephemeral=True)
 
+    @discord.ui.button(label="Leave Match", style=discord.ButtonStyle.secondary, row=2)
+    async def leave_match(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.leave_table(interaction)
+
+
+class PokerTableView(discord.ui.View):
+    def __init__(self, channel_id: int, cog: "PokerCog"):
+        super().__init__(timeout=None)
+        self.channel_id = channel_id
+        self.cog = cog
+
+    def get_game(self) -> dict | None:
+        return self.cog.poker_games.get(self.channel_id)
+
+    @discord.ui.button(label="Players", style=discord.ButtonStyle.secondary, row=0)
+    async def show_players(self, interaction: discord.Interaction, button: discord.ui.Button):
+        game = self.get_game()
+        if not game:
+            await interaction.response.send_message("No active table.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=build_players_embed(game), ephemeral=True)
+
+    @discord.ui.button(label="Leave Match", style=discord.ButtonStyle.secondary, row=0)
+    async def leave_match(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.leave_table(interaction)
+
 
 class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     """Texas Hold'em poker tables that continue until the table ends."""
@@ -644,7 +678,17 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             "total_chip_in": 0,
             "all_in": False,
             "in_current_hand": False,
+            "leaving_after_hand": False,
         }
+
+    async def _get_channel(self, channel_id: int):
+        channel = self.bot.get_channel(channel_id)
+        if channel is not None:
+            return channel
+        try:
+            return await self.bot.fetch_channel(channel_id)
+        except Exception:
+            return None
 
     async def _member_name(self, channel: discord.TextChannel, user_id: int) -> str:
         try:
@@ -669,6 +713,46 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if task:
             task.cancel()
         game["pending_start_task"] = None
+        game["next_hand_starts_at"] = None
+
+    def _remove_player_from_table(self, game: dict, user_id: int) -> None:
+        game["players"].pop(user_id, None)
+        if user_id in game["seating_order"]:
+            game["seating_order"].remove(user_id)
+        if user_id in game["player_order"]:
+            removed_index = game["player_order"].index(user_id)
+            game["player_order"].remove(user_id)
+            if game["player_order"]:
+                if removed_index < game["turn_index"]:
+                    game["turn_index"] -= 1
+                game["turn_index"] %= len(game["player_order"])
+            else:
+                game["turn_index"] = 0
+
+    async def _finalize_pending_leaves(self, channel, game: dict) -> None:
+        departures = []
+        for user_id in list(game["seating_order"]):
+            player = game["players"].get(user_id)
+            if not player or not player.get("leaving_after_hand"):
+                continue
+            refund = player["stack"]
+            if refund > 0:
+                self.add_chips(user_id, refund)
+            departures.append((user_id, refund))
+            self._remove_player_from_table(game, user_id)
+
+        if departures and channel is not None:
+            lines = []
+            for user_id, refund in departures:
+                refund_text = f" and was refunded **{refund}** {CHIP_EMOJI}" if refund > 0 else ""
+                lines.append(f"<@{user_id}> left the table{refund_text}.")
+            await channel.send(
+                embed=discord.Embed(
+                    title="Player left the table",
+                    description="\n".join(lines),
+                    color=discord.Color.orange(),
+                )
+            )
 
     async def _queue_next_hand(self, channel_id: int, delay: int = HAND_START_DELAY_SECONDS) -> None:
         game = self.poker_games.get(channel_id)
@@ -676,6 +760,18 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             return
         if game.get("pending_start_task"):
             return
+        game["next_hand_starts_at"] = time.time() + delay
+
+        channel = await self._get_channel(channel_id)
+        if channel is not None:
+            await channel.send(
+                embed=discord.Embed(
+                    title="Next round queued",
+                    description=f"The next round starts in **{delay}s**.",
+                    color=discord.Color.blurple(),
+                ),
+                view=PokerTableView(channel_id, self),
+            )
 
         async def delayed_start():
             try:
@@ -733,7 +829,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if game["hand_active"]:
             self._restore_hand_contributions(game)
 
-        channel = self.bot.get_channel(channel_id)
+        channel = await self._get_channel(channel_id)
         refunds = []
         for user_id, player in game["players"].items():
             if player["stack"] > 0:
@@ -799,21 +895,24 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             "last_activity": time.time(),
             "ending": False,
             "pending_start_task": None,
+            "next_hand_starts_at": None,
             "inactivity_task": None,
         }
         game["inactivity_task"] = asyncio.create_task(self._monitor_inactivity(channel_id))
         self.poker_games[channel_id] = game
 
-        await interaction.response.send_message(embed=build_waiting_embed(game))
+        await interaction.response.send_message(embed=build_waiting_embed(game), view=PokerTableView(channel_id, self))
 
     async def _start_next_hand(self, channel_id: int) -> None:
         game = self.poker_games.get(channel_id)
         if not game or game["ending"] or not game["started"] or game["hand_active"]:
             return
 
-        channel = self.bot.get_channel(channel_id)
+        channel = await self._get_channel(channel_id)
         if channel is None:
             return
+
+        await self._finalize_pending_leaves(channel, game)
 
         eligible = eligible_table_players(game)
         if len(eligible) == 0:
@@ -856,6 +955,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             player["total_chip_in"] = 0
             player["all_in"] = False
             player["in_current_hand"] = True
+            player["leaving_after_hand"] = False
             try:
                 member = await channel.guild.fetch_member(user_id)
                 await member.send(f"Your hole cards:\n{format_cards(player['cards'])}")
@@ -915,7 +1015,54 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             await channel.send(embed=embed)
 
         self._reset_hand_state(game)
+        await self._finalize_pending_leaves(channel, game)
         await self._queue_next_hand(channel.id)
+
+    async def leave_table(self, interaction: discord.Interaction) -> None:
+        game = self.poker_games.get(interaction.channel.id)
+        if not game:
+            await interaction.response.send_message("No active table here.", ephemeral=True)
+            return
+
+        player = game["players"].get(interaction.user.id)
+        if not player:
+            await interaction.response.send_message("You're not seated at this table.", ephemeral=True)
+            return
+
+        self._touch_game(game)
+        if game["hand_active"] and player["in_current_hand"]:
+            player["leaving_after_hand"] = True
+            await interaction.response.send_message(
+                "You'll leave the match when this hand ends. Your remaining stack will be refunded then.",
+                ephemeral=True,
+            )
+            return
+
+        refund = player["stack"]
+        if refund > 0:
+            self.add_chips(interaction.user.id, refund)
+        self._remove_player_from_table(game, interaction.user.id)
+        await interaction.response.send_message(
+            f"You left the match and were refunded **{refund}** {CHIP_EMOJI}.",
+            ephemeral=True,
+        )
+        await interaction.channel.send(
+            embed=discord.Embed(
+                description=f"{interaction.user.mention} left the table and was refunded **{refund}** {CHIP_EMOJI}.",
+                color=discord.Color.orange(),
+            )
+        )
+
+        if not game["hand_active"] and game["started"]:
+            eligible = eligible_table_players(game)
+            if len(eligible) == 0:
+                await self._close_table(interaction.channel.id, "Table ended because nobody had chips left at the table.")
+            elif len(eligible) == 1:
+                await self._close_table(
+                    interaction.channel.id,
+                    "Only one player still has chips at the table.",
+                    champion_id=eligible[0],
+                )
 
     @app_commands.command(name="daily", description="Claim your daily poker chips")
     async def daily(self, interaction: discord.Interaction):
@@ -1015,7 +1162,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         )
 
         if game["started"] and not game["hand_active"]:
-            await self._queue_next_hand(interaction.channel.id, delay=2)
+            await self._queue_next_hand(interaction.channel.id, delay=HAND_START_DELAY_SECONDS)
 
     @poker_group.command(name="start", description="Start the endless poker table (host only)")
     async def poker_start(self, interaction: discord.Interaction):
@@ -1029,11 +1176,17 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if game["started"]:
             await interaction.response.send_message("This poker table is already running.", ephemeral=True)
             return
+        if len(eligible_table_players(game)) < 2:
+            await interaction.response.send_message(
+                "You need at least 2 seated players with chips before the match can start.",
+                ephemeral=True,
+            )
+            return
 
         game["started"] = True
         self._touch_game(game)
-        await interaction.response.send_message("Poker table started. Hands will keep rolling automatically.")
-        await self._queue_next_hand(interaction.channel.id, delay=1)
+        await interaction.response.send_message("Poker table started. First round begins in 15 seconds.")
+        await self._queue_next_hand(interaction.channel.id, delay=HAND_START_DELAY_SECONDS)
 
     @poker_group.command(name="setchips", description="Add or remove chips (owner only)")
     @app_commands.check(is_owner)
