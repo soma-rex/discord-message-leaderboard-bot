@@ -20,9 +20,10 @@ Pulse currently includes:
 
 * A modular command system using cogs
 * Casino-style games such as poker, blackjack, roulette, and slots
+* An anime guessing mode with progressive image reveals
 * A basic economy system with balances and rewards
 * User statistics tracking using a database
-* AI-powered responses using an external API
+* AI-powered responses using an external API, with optional GIPHY reactions
 * Admin and configuration commands for server management
 * Custom help command system
 
@@ -76,6 +77,7 @@ pip install -r requirements.txt
 ```
 DISCORD_TOKEN=your_token_here
 GROQ_API_KEY=your_api_key_here
+GIPHY_API_KEY=your_giphy_api_key_here
 ```
 
 4. Run the bot:
@@ -98,6 +100,30 @@ Examples of usage include:
 * Accessing the help command for a full list of features
 
 Exact commands may vary depending on how the cogs are configured.
+
+### Anime Guess Setup
+
+The anime guessing game now fetches anime data and clue images from AniList at runtime, so you do not need to maintain a local JSON file of entries.
+
+Current clue flow:
+
+* hard clue: banner art when AniList provides it
+* medium clue: up to two character images
+* easy clue: cover art
+
+The bot accepts multiple answer forms automatically by using AniList titles and synonyms.
+
+Commands:
+
+* `/anime start` - start a random round in the current channel
+* `/anime stop` - stop the current round
+* `/anime status` - show whether a round is active in the current channel
+
+### AI GIF Replies
+
+If `GIPHY_API_KEY` is set, AI chat replies can sometimes include a matching GIF or, more rarely, respond with only a GIF when it fits the tone.
+
+If GIPHY is not configured or no GIF is found, the bot falls back to a normal text reply.
 
 ---
 
