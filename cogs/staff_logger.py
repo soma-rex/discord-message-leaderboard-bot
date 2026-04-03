@@ -1094,7 +1094,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         if embed is None:
             await interaction.response.send_message("That user is not registered in the staff logger.", ephemeral=True)
             return
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
 
     @commands.command(name="profile")
     async def profile_prefix(self, ctx: commands.Context, user: discord.Member | None = None):
