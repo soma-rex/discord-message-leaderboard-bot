@@ -130,7 +130,7 @@ class ProfileEditView(discord.ui.View):
     async def _refresh_message(self):
         if not self.message:
             return
-        embed = self.cog._build_profile_embed(self.member)
+        embed = self.cog._build_profile_embed(self.member, viewer=self.member)
         if embed is None:
             return
         await self.message.edit(content=self._content(), embed=embed, view=self)
@@ -653,7 +653,11 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
         return "That profile field can't be edited here.", ""
 
-    def _build_profile_embed(self, member: discord.Member) -> discord.Embed | None:
+    def _build_profile_embed(
+        self,
+        member: discord.Member,
+        viewer: discord.abc.User | discord.Member | None = None,
+    ) -> discord.Embed | None:
         row = self._sync_member_registration(member)
         if not row:
             return None
@@ -676,7 +680,6 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             title=self._profile_title_text(member, profile_title),
             color=self._parse_hex_color(profile_color) or discord.Color.blurple(),
         )
-        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="Tracked Roles", value=", ".join(role.upper() for role in role_types) or "None", inline=False)
         embed.add_field(name="Date Joined", value=self._format_date_string(registered_at), inline=True)
@@ -694,6 +697,8 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             embed.set_image(url=profile_image_url)
         elif profile_image_url:
             embed.add_field(name="Banner / GIF", value=f"[Open media]({profile_image_url})", inline=False)
+        if viewer is not None:
+            embed.set_footer(text=str(viewer), icon_url=viewer.display_avatar.url)
         return embed
 
     async def _build_staff_overview_embed(self, guild: discord.Guild) -> discord.Embed:
@@ -1105,7 +1110,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
             return
         target = user or interaction.user
-        embed = self._build_profile_embed(target)
+        embed = self._build_profile_embed(target, viewer=interaction.user)
         if embed is None:
             await interaction.response.send_message("That user is not registered in the staff logger.", ephemeral=True)
             return
@@ -1117,7 +1122,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             await ctx.send(self._not_registered_message())
             return
         target = user or ctx.author
-        embed = self._build_profile_embed(target)
+        embed = self._build_profile_embed(target, viewer=ctx.author)
         if embed is None:
             await ctx.send("That user is not registered in the staff logger.")
             return
@@ -1128,7 +1133,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         if not self._is_registered(interaction.user.id):
             await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
             return
-        embed = self._build_profile_embed(interaction.user)
+        embed = self._build_profile_embed(interaction.user, viewer=interaction.user)
         if embed is None:
             await interaction.response.send_message("Your profile could not be loaded.", ephemeral=True)
             return
@@ -1260,7 +1265,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         self._set_total_stat(user.id, "total_eman_count", eman)
         self._set_total_stat(user.id, "total_mod_message_count", mod)
 
-        embed = self._build_profile_embed(user)
+        embed = self._build_profile_embed(user, viewer=interaction.user)
         response = discord.Embed(title="Lifetime Stats Updated", color=discord.Color.green())
         response.add_field(name="User", value=user.mention, inline=True)
         response.add_field(name="Giveaway Pings", value=str(gman), inline=True)
