@@ -16,12 +16,16 @@ from groq import Groq
 
 MAX_HISTORY = 6
 GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
+GIPHY_TRENDING_SEARCHES_URL = "https://api.giphy.com/v1/trending/searches"
 GIF_ONLY_CHANCE = 0.12
 GIF_WITH_TEXT_CHANCE = 0.28
 GIF_USER_COOLDOWN_SECONDS = 30
 GIF_CHANNEL_COOLDOWN_SECONDS = 12
 MAX_GIF_QUERY_WORDS = 6
 SAFE_GIF_HINT = "reaction"
+TRENDING_CACHE_SECONDS = 1800
+TRENDING_BLEND_CHANCE = 0.35
+SPEED_BIAS_CHANCE = 0.75
 NSFW_TERMS = {
     "nsfw", "sex", "sexy", "sexual", "nude", "nudes", "naked", "boobs", "breasts",
     "ass", "booty", "tits", "thirst", "horny", "seduce", "seductive", "fetish",
@@ -40,8 +44,115 @@ SAFE_GIF_KEYWORDS = {
     "facepalm", "angry", "mad", "annoyed", "smug", "proud", "clap", "applause",
     "dance", "dancing", "wave", "waving", "thumbs", "thumbsup", "oops", "panic",
     "nervous", "sleepy", "bored", "win", "victory", "bye", "hello", "hug",
+    "meme", "speed",
 }
-DEFAULT_TEST_GIF_QUERY = "happy reaction"
+SAFE_TRENDING_TERMS = {
+    "meme", "reaction", "funny", "celebration", "laughing", "crying", "sad",
+    "happy", "shocked", "surprised", "confused", "awkward", "facepalm", "angry",
+    "dance", "dancing", "win", "victory", "cheering", "panic", "nervous",
+}
+SPEED_REACTION_FALLBACKS = {
+    "happy": [
+        "ishowspeed happy reaction",
+        "ishowspeed laughing reaction",
+        "ishowspeed celebration reaction",
+    ],
+    "excited": [
+        "ishowspeed celebration reaction",
+        "ishowspeed screaming reaction",
+        "ishowspeed hype reaction",
+    ],
+    "celebration": [
+        "ishowspeed celebration reaction",
+        "ishowspeed hype reaction",
+        "ishowspeed win reaction",
+    ],
+    "laughing": [
+        "ishowspeed laughing reaction",
+        "ishowspeed funny reaction",
+        "ishowspeed dying laughing reaction",
+    ],
+    "crying": [
+        "ishowspeed crying reaction",
+        "ishowspeed sad reaction",
+        "ishowspeed devastated reaction",
+    ],
+    "sad": [
+        "ishowspeed sad reaction",
+        "ishowspeed disappointed reaction",
+        "ishowspeed crying reaction",
+    ],
+    "shocked": [
+        "ishowspeed shocked reaction",
+        "ishowspeed stunned reaction",
+        "ishowspeed no way reaction",
+    ],
+    "surprised": [
+        "ishowspeed shocked reaction",
+        "ishowspeed no way reaction",
+        "ishowspeed stunned reaction",
+    ],
+    "confused": [
+        "ishowspeed confused reaction",
+        "ishowspeed huh reaction",
+        "ishowspeed side eye reaction",
+    ],
+    "awkward": [
+        "ishowspeed awkward reaction",
+        "ishowspeed side eye reaction",
+        "ishowspeed stare reaction",
+    ],
+    "facepalm": [
+        "ishowspeed facepalm reaction",
+        "ishowspeed disappointed reaction",
+        "ishowspeed bruh reaction",
+    ],
+    "angry": [
+        "ishowspeed angry reaction",
+        "ishowspeed mad reaction",
+        "ishowspeed yelling reaction",
+    ],
+    "mad": [
+        "ishowspeed mad reaction",
+        "ishowspeed angry reaction",
+        "ishowspeed yelling reaction",
+    ],
+    "annoyed": [
+        "ishowspeed annoyed reaction",
+        "ishowspeed bruh reaction",
+        "ishowspeed side eye reaction",
+    ],
+    "panic": [
+        "ishowspeed panic reaction",
+        "ishowspeed screaming reaction",
+        "ishowspeed stressed reaction",
+    ],
+    "nervous": [
+        "ishowspeed nervous reaction",
+        "ishowspeed stressed reaction",
+        "ishowspeed panic reaction",
+    ],
+    "dance": [
+        "ishowspeed dance reaction",
+        "ishowspeed vibing reaction",
+        "ishowspeed celebration reaction",
+    ],
+    "win": [
+        "ishowspeed win reaction",
+        "ishowspeed celebration reaction",
+        "ishowspeed hype reaction",
+    ],
+    "victory": [
+        "ishowspeed win reaction",
+        "ishowspeed celebration reaction",
+        "ishowspeed hype reaction",
+    ],
+    "default": [
+        "ishowspeed reaction",
+        "ishowspeed funny reaction",
+        "ishowspeed meme reaction",
+    ],
+}
 
 
 def extract_emojis(text: str) -> list:
@@ -67,6 +178,8 @@ class AiCog(commands.Cog, name="AI"):
         self.gif_channel_cooldown: dict[int, float] = {}
         self.giphy_api_key = os.getenv("GIPHY_API_KEY")
         self.http_session: aiohttp.ClientSession | None = None
+        self.trending_search_cache: list[str] = []
+        self.trending_cache_time = 0.0
 
     def cog_unload(self):
         if self.http_session and not self.http_session.closed:
@@ -209,6 +322,81 @@ You are a witty Discord assistant.
         filtered = filtered[:MAX_GIF_QUERY_WORDS]
         return " ".join(filtered).strip()
 
+    async def _get_trending_searches(self) -> list[str]:
+        if not self.giphy_api_key:
+            return []
+
+        now = time.time()
+        if self.trending_search_cache and now - self.trending_cache_time < TRENDING_CACHE_SECONDS:
+            return self.trending_search_cache
+
+        session = await self._get_http_session()
+        params = {
+            "api_key": self.giphy_api_key,
+        }
+
+        try:
+            async with session.get(GIPHY_TRENDING_SEARCHES_URL, params=params) as response:
+                if response.status != 200:
+                    return self.trending_search_cache
+                payload = await response.json()
+        except aiohttp.ClientError:
+            return self.trending_search_cache
+
+        raw_terms = payload.get("data") or []
+        safe_terms: list[str] = []
+        seen = set()
+        for term in raw_terms:
+            if not isinstance(term, str):
+                continue
+            lowered = term.casefold().strip()
+            if not lowered or lowered in seen:
+                continue
+            if self._contains_blocked_terms(lowered):
+                continue
+            if not any(keyword in lowered for keyword in SAFE_TRENDING_TERMS):
+                continue
+            safe_terms.append(lowered)
+            seen.add(lowered)
+
+        self.trending_search_cache = safe_terms[:20]
+        self.trending_cache_time = now
+        return self.trending_search_cache
+
+    async def _build_gif_candidates(self, query: str) -> list[str]:
+        candidates: list[str] = []
+
+        sanitized = self._sanitize_gif_query(query)
+        if sanitized:
+            candidates.append(sanitized)
+
+        speed_candidates: list[str] = []
+        query_words = sanitized.split()
+        for word in query_words:
+            speed_candidates.extend(SPEED_REACTION_FALLBACKS.get(word, []))
+        if not speed_candidates:
+            speed_candidates.extend(SPEED_REACTION_FALLBACKS["default"])
+
+        if random.random() < SPEED_BIAS_CHANCE:
+            candidates.extend(speed_candidates[:3])
+        else:
+            candidates.append(random.choice(speed_candidates))
+
+        trending_terms = await self._get_trending_searches()
+        if trending_terms and random.random() < TRENDING_BLEND_CHANCE:
+            chosen_trend = random.choice(trending_terms)
+            trend_query = self._sanitize_gif_query(f"{chosen_trend} reaction")
+            if trend_query:
+                candidates.append(trend_query)
+
+        deduped: list[str] = []
+        seen = set()
+        for candidate in candidates:
+            if candidate and candidate not in seen:
+                deduped.append(candidate)
+                seen.add(candidate)
+        return deduped[:4]
+
     def _can_send_gif(self, message: discord.Message, query: str) -> bool:
         if not self.giphy_api_key:
             return False
@@ -250,38 +438,42 @@ You are a witty Discord assistant.
         return True
 
     async def _search_giphy_gif(self, query: str) -> str | None:
-        sanitized_query = self._sanitize_gif_query(query)
-        if not sanitized_query:
+        queries = await self._build_gif_candidates(query)
+        if not queries:
             return None
 
         session = await self._get_http_session()
-        params = {
-            "api_key": self.giphy_api_key,
-            "q": sanitized_query[:50],
-            "limit": 10,
-            "offset": 0,
-            "rating": "g",
-            "lang": "en",
-        }
+        for candidate_query in queries:
+            params = {
+                "api_key": self.giphy_api_key,
+                "q": candidate_query[:50],
+                "limit": 10,
+                "offset": 0,
+                "rating": "g",
+                "lang": "en",
+            }
 
-        async with session.get(GIPHY_SEARCH_URL, params=params) as response:
-            if response.status != 200:
-                return None
-            payload = await response.json()
-
-        results = payload.get("data") or []
-        random.shuffle(results)
-        for item in results:
-            if not self._is_safe_giphy_item(item):
+            try:
+                async with session.get(GIPHY_SEARCH_URL, params=params) as response:
+                    if response.status != 200:
+                        continue
+                    payload = await response.json()
+            except aiohttp.ClientError:
                 continue
-            images = item.get("images") or {}
-            candidate = (
-                (images.get("downsized_medium") or {}).get("url")
-                or (images.get("original") or {}).get("url")
-                or item.get("url")
-            )
-            if candidate:
-                return candidate
+
+            results = payload.get("data") or []
+            random.shuffle(results)
+            for item in results:
+                if not self._is_safe_giphy_item(item):
+                    continue
+                images = item.get("images") or {}
+                candidate = (
+                    (images.get("downsized_medium") or {}).get("url")
+                    or (images.get("original") or {}).get("url")
+                    or item.get("url")
+                )
+                if candidate:
+                    return candidate
         return None
 
     async def _send_ai_reply(self, message: discord.Message, ai_payload: dict):
@@ -308,35 +500,6 @@ You are a witty Discord assistant.
             return
 
         await message.reply(reply_text or "...", allowed_mentions=allowed_mentions)
-
-    async def _send_gif_test_reply(self, message: discord.Message):
-        query_match = re.search(r"gif test\s*(.*)", message.content, flags=re.IGNORECASE)
-        requested_query = query_match.group(1).strip() if query_match else ""
-        test_query = requested_query or DEFAULT_TEST_GIF_QUERY
-
-        if not self.giphy_api_key:
-            await message.reply("GIPHY isn't configured yet. Add `GIPHY_API_KEY` to `.env` and restart the bot.")
-            return
-
-        if self._contains_blocked_terms(test_query):
-            await message.reply("That test query was blocked by the safety filter. Try something like `gif test happy reaction`.")
-            return
-
-        gif_url = await self._search_giphy_gif(test_query)
-        if not gif_url:
-            await message.reply(
-                f"I couldn't fetch a safe GIF for `{self._sanitize_gif_query(test_query) or test_query}`. "
-                "That usually means the key needs a restart, the API returned nothing safe, or the query was too narrow."
-            )
-            return
-
-        embed = discord.Embed(
-            title="GIPHY Test",
-            description=f"Query: `{self._sanitize_gif_query(test_query)}`",
-            color=discord.Color.green(),
-        )
-        embed.set_image(url=gif_url)
-        await message.reply("Safe GIF test worked.", embed=embed)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -365,10 +528,6 @@ You are a witty Discord assistant.
             return
 
         try:
-            if re.search(r"\bgif test\b", message.content or "", flags=re.IGNORECASE):
-                await self._send_gif_test_reply(message)
-                return
-
             content = message.content or ""
             emojis = extract_emojis(content)
             custom_emojis = re.findall(r"<a?:\w+:\d+>", content)
