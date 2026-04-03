@@ -710,7 +710,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
 
     def _cancel_pending_start(self, game: dict) -> None:
         task = game.get("pending_start_task")
-        if task:
+        current_task = asyncio.current_task()
+        if task and task is not current_task:
             task.cancel()
         game["pending_start_task"] = None
         game["next_hand_starts_at"] = None
@@ -1185,8 +1186,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
 
         game["started"] = True
         self._touch_game(game)
-        await interaction.response.send_message("Poker table started. First round begins in 15 seconds.")
-        await self._queue_next_hand(interaction.channel.id, delay=HAND_START_DELAY_SECONDS)
+        await interaction.response.send_message("Poker table started. First round is starting now.")
+        await self._start_next_hand(interaction.channel.id)
 
     @poker_group.command(name="setchips", description="Add or remove chips (owner only)")
     @app_commands.check(is_owner)
