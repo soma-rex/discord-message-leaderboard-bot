@@ -27,7 +27,7 @@ HELP_PAGES = {
         "description": "Casino commands and chip economy.",
         "fields": [
             ("Shared economy", "`/daily` Claim your shared daily chips\n`/chips` Check your chip balance", False),
-            ("Poker", "`/poker create` `join` `start` `setchips` `end`", False),
+            ("Poker", "`/poker create` Open a table\n`/poker join` Buy in or rebuy\n`/poker start` Start the endless table\n`/poker end` End the table and refund stacks", False),
             ("Blackjack", "`/blackjack play <bet>`", False),
             ("Roulette", "`/roulette spin <bet_type> <bet>`\n`/roulette table`", False),
             ("Slots", "`/slots spin <bet>`\n`/slots paytable`", False),

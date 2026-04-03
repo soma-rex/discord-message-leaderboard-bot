@@ -250,13 +250,27 @@ You are a witty Discord assistant.
         return parsed
 
     def _parse_ai_payload(self, payload: str) -> dict:
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError:
-            cleaned = payload.strip() or "..."
-            return {"reply_text": cleaned, "gif_query": "", "gif_mode": "text"}
+        stripped = payload.strip()
+        json_match = re.search(r"\{[\s\S]*\}", stripped)
 
-        reply_text = str(data.get("reply_text", "")).strip()
+        if json_match:
+            try:
+                data = json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                data = None
+            else:
+                return self._normalize_ai_payload(data)
+
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError:
+            cleaned = self._sanitize_plain_reply(stripped)
+            return {"reply_text": cleaned or "...", "gif_query": "", "gif_mode": "text"}
+
+        return self._normalize_ai_payload(data)
+
+    def _normalize_ai_payload(self, data: dict) -> dict:
+        reply_text = self._sanitize_plain_reply(str(data.get("reply_text", "")).strip())
         gif_query = str(data.get("gif_query", "")).strip()
         gif_mode = str(data.get("gif_mode", "text")).strip().lower()
 
@@ -267,11 +281,31 @@ You are a witty Discord assistant.
         if not reply_text and gif_mode != "gif":
             reply_text = "..."
 
-        return {
-            "reply_text": reply_text,
-            "gif_query": gif_query,
-            "gif_mode": gif_mode,
+        return {"reply_text": reply_text, "gif_query": gif_query, "gif_mode": gif_mode}
+
+    def _sanitize_plain_reply(self, text: str) -> str:
+        cleaned = re.sub(r"\{[\s\S]*\}", "", text).strip()
+        cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+
+        if self._looks_like_instruction_bait(cleaned):
+            return "not doing command tricks"
+        return cleaned
+
+    def _looks_like_instruction_bait(self, text: str) -> bool:
+        lowered = text.casefold().strip()
+        if not lowered:
+            return False
+        bait_phrases = {
+            "send a gif",
+            "send gif",
+            "send an emoji",
+            "send emoji",
+            "ping someone",
+            "ping them",
+            "send a ping",
         }
+        return lowered in bait_phrases
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self.http_session is None or self.http_session.closed:

@@ -101,6 +101,19 @@ Examples of usage include:
 
 Exact commands may vary depending on how the cogs are configured.
 
+### Endless Poker Tables
+
+Poker now runs as a persistent table flow instead of a single hand.
+
+Current table behavior:
+
+* `/poker create` opens a table with a buy-in and raise cap
+* `/poker join` buys a player into the table or lets a busted player rebuy
+* `/poker start` starts the table once, then hands continue automatically
+* players who join during an active hand are added to the next hand
+* the table ends when only one player has chips left, an admin uses `/poker end`, or the table is inactive for 30 minutes
+* remaining table stacks are refunded back to player balances when the table ends
+
 ### Anime Guess Setup
 
 The anime guessing game now fetches anime data and clue images from AniList at runtime, so you do not need to maintain a local JSON file of entries.
