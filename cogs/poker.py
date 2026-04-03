@@ -360,6 +360,9 @@ class PokerBetView(discord.ui.View):
         game = self.get_game()
         if not game or not game["hand_active"]:
             return None, None, "No active hand."
+        action_message = game.get("action_message")
+        if action_message is not None and interaction.message is not None and interaction.message.id != action_message.id:
+            return game, None, "That action prompt is out of date. Use the newest poker message."
         current_uid = game["player_order"][game["turn_index"]]
         if interaction.user.id != current_uid:
             return game, None, "It's not your turn."
@@ -457,11 +460,7 @@ class PokerBetView(discord.ui.View):
             return
 
         game["turn_index"] = game["player_order"].index(can_act[0])
-        await channel.send(
-            f"<@{can_act[0]}>",
-            embed=build_game_embed(game),
-            view=PokerBetView(self.channel_id, self.cog),
-        )
+        await self.cog._send_turn_prompt(channel, game, can_act[0])
 
     async def resolve_turn(self, channel: discord.TextChannel):
         game = self.get_game()
@@ -502,11 +501,7 @@ class PokerBetView(discord.ui.View):
             return
 
         current_uid = game["player_order"][game["turn_index"]]
-        await channel.send(
-            f"<@{current_uid}>",
-            embed=build_game_embed(game),
-            view=PokerBetView(self.channel_id, self.cog),
-        )
+        await self.cog._send_turn_prompt(channel, game, current_uid)
 
     @discord.ui.button(label="Fold", style=discord.ButtonStyle.danger, row=0)
     async def fold(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -602,8 +597,15 @@ class PokerBetView(discord.ui.View):
                     other["acted"] = False
 
         self._advance_turn_index(game)
-        await interaction.response.send_message(f"All-in with **{chips}** chips.", ephemeral=True)
-        await self._announce_action(interaction.channel, interaction.user, f"went all-in with **{chips}** chips.")
+        await interaction.response.send_message(
+            f"All-in with **{chips}** chips. Your total bet is now **{player['bet']}**.",
+            ephemeral=True,
+        )
+        await self._announce_action(
+            interaction.channel,
+            interaction.user,
+            f"went all-in with **{chips}** chips. Total bet: **{player['bet']}**.",
+        )
         await self.resolve_turn(interaction.channel)
 
     @discord.ui.button(label="Players", style=discord.ButtonStyle.secondary, row=1)
@@ -755,6 +757,37 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 )
             )
 
+    async def _disable_action_view(self, game: dict) -> None:
+        message = game.get("action_message")
+        if message is None:
+            return
+        try:
+            await message.edit(view=None)
+        except Exception:
+            pass
+        game["action_message"] = None
+
+    async def _send_turn_prompt(self, channel: discord.TextChannel, game: dict, mention_user_id: int) -> None:
+        current_message = game.get("action_message")
+        view = PokerBetView(channel.id, self)
+        if current_message is not None:
+            try:
+                await current_message.edit(
+                    content=f"<@{mention_user_id}>",
+                    embed=build_game_embed(game),
+                    view=view,
+                )
+                return
+            except Exception:
+                game["action_message"] = None
+
+        message = await channel.send(
+            f"<@{mention_user_id}>",
+            embed=build_game_embed(game),
+            view=view,
+        )
+        game["action_message"] = message
+
     async def _queue_next_hand(self, channel_id: int, delay: int = HAND_START_DELAY_SECONDS) -> None:
         game = self.poker_games.get(channel_id)
         if not game or game["ending"] or not game["started"] or game["hand_active"]:
@@ -830,6 +863,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if game["hand_active"]:
             self._restore_hand_contributions(game)
 
+        await self._disable_action_view(game)
+
         channel = await self._get_channel(channel_id)
         refunds = []
         for user_id, player in game["players"].items():
@@ -897,6 +932,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             "ending": False,
             "pending_start_task": None,
             "next_hand_starts_at": None,
+            "action_message": None,
             "inactivity_task": None,
         }
         game["inactivity_task"] = asyncio.create_task(self._monitor_inactivity(channel_id))
@@ -964,11 +1000,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 pass
 
         current_uid = game["player_order"][game["turn_index"]]
-        await channel.send(
-            f"Hand **#{game['hand_number']}** is starting. <@{current_uid}> acts first.",
-            embed=build_game_embed(game),
-            view=PokerBetView(channel_id, self),
-        )
+        await channel.send(f"Hand **#{game['hand_number']}** is starting. <@{current_uid}> acts first.")
+        await self._send_turn_prompt(channel, game, current_uid)
 
     async def finish_hand(self, channel: discord.TextChannel, game: dict, *, showdown: bool = True) -> None:
         self._touch_game(game)
@@ -976,6 +1009,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             game["visible_community"] = game["community"][:]
             pots = build_side_pots(game)
             results_lines = []
+            total_awarded = 0
 
             for index, pot in enumerate(pots, start=1):
                 eligible = pot["eligible"]
@@ -994,10 +1028,15 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 for winner_index, (_, winner_id) in enumerate(winners):
                     award = split + (remainder if winner_index == 0 else 0)
                     game["players"][winner_id]["stack"] += award
+                    total_awarded += award
                     winner_names.append(await self._member_name(channel, winner_id))
 
                 label = "Main pot" if index == 1 else f"Side pot {index - 1}"
                 results_lines.append(f"**{label} ({pot['amount']})** -> {', '.join(winner_names)}")
+
+            if total_awarded < game["pot"] and pots and pots[0]["eligible"]:
+                fallback_winner = pots[0]["eligible"][0]
+                game["players"][fallback_winner]["stack"] += game["pot"] - total_awarded
 
             hand_lines = []
             for user_id in game["player_order"]:
@@ -1015,6 +1054,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             embed.add_field(name="Hands", value="\n".join(hand_lines) or "-", inline=False)
             await channel.send(embed=embed)
 
+        await self._disable_action_view(game)
         self._reset_hand_state(game)
         await self._finalize_pending_leaves(channel, game)
         await self._queue_next_hand(channel.id)
