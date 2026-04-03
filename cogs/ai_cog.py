@@ -41,6 +41,7 @@ SAFE_GIF_KEYWORDS = {
     "dance", "dancing", "wave", "waving", "thumbs", "thumbsup", "oops", "panic",
     "nervous", "sleepy", "bored", "win", "victory", "bye", "hello", "hug",
 }
+DEFAULT_TEST_GIF_QUERY = "happy reaction"
 
 
 def extract_emojis(text: str) -> list:
@@ -308,6 +309,35 @@ You are a witty Discord assistant.
 
         await message.reply(reply_text or "...", allowed_mentions=allowed_mentions)
 
+    async def _send_gif_test_reply(self, message: discord.Message):
+        query_match = re.search(r"gif test\s*(.*)", message.content, flags=re.IGNORECASE)
+        requested_query = query_match.group(1).strip() if query_match else ""
+        test_query = requested_query or DEFAULT_TEST_GIF_QUERY
+
+        if not self.giphy_api_key:
+            await message.reply("GIPHY isn't configured yet. Add `GIPHY_API_KEY` to `.env` and restart the bot.")
+            return
+
+        if self._contains_blocked_terms(test_query):
+            await message.reply("That test query was blocked by the safety filter. Try something like `gif test happy reaction`.")
+            return
+
+        gif_url = await self._search_giphy_gif(test_query)
+        if not gif_url:
+            await message.reply(
+                f"I couldn't fetch a safe GIF for `{self._sanitize_gif_query(test_query) or test_query}`. "
+                "That usually means the key needs a restart, the API returned nothing safe, or the query was too narrow."
+            )
+            return
+
+        embed = discord.Embed(
+            title="GIPHY Test",
+            description=f"Query: `{self._sanitize_gif_query(test_query)}`",
+            color=discord.Color.green(),
+        )
+        embed.set_image(url=gif_url)
+        await message.reply("Safe GIF test worked.", embed=embed)
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author == self.bot.user:
@@ -335,6 +365,10 @@ You are a witty Discord assistant.
             return
 
         try:
+            if re.search(r"\bgif test\b", message.content or "", flags=re.IGNORECASE):
+                await self._send_gif_test_reply(message)
+                return
+
             content = message.content or ""
             emojis = extract_emojis(content)
             custom_emojis = re.findall(r"<a?:\w+:\d+>", content)
