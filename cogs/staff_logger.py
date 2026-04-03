@@ -107,7 +107,11 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 sotm_count INTEGER NOT NULL DEFAULT 0,
                 total_gman_count INTEGER NOT NULL DEFAULT 0,
                 total_eman_count INTEGER NOT NULL DEFAULT 0,
-                total_mod_message_count INTEGER NOT NULL DEFAULT 0
+                total_mod_message_count INTEGER NOT NULL DEFAULT 0,
+                profile_color TEXT,
+                profile_image_url TEXT,
+                profile_title TEXT,
+                profile_bio TEXT
             )
             """
         )
@@ -122,6 +126,10 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             "total_gman_count": "INTEGER NOT NULL DEFAULT 0",
             "total_eman_count": "INTEGER NOT NULL DEFAULT 0",
             "total_mod_message_count": "INTEGER NOT NULL DEFAULT 0",
+            "profile_color": "TEXT",
+            "profile_image_url": "TEXT",
+            "profile_title": "TEXT",
+            "profile_bio": "TEXT",
         }
         for column_name, column_type in required_columns.items():
             if column_name not in columns:
@@ -190,7 +198,11 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 sotm_count,
                 total_gman_count,
                 total_eman_count,
-                total_mod_message_count
+                total_mod_message_count,
+                profile_color,
+                profile_image_url,
+                profile_title,
+                profile_bio
             FROM staff_users
             WHERE user_id = ?
             """,
@@ -377,6 +389,29 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         self.cursor.execute(f"UPDATE staff_users SET {field_name} = ? WHERE user_id = ?", (value, user_id))
         self.conn.commit()
 
+    def _parse_hex_color(self, value: str | None) -> discord.Color | None:
+        if not value:
+            return None
+        normalized = value.strip().lstrip("#")
+        if len(normalized) != 6:
+            return None
+        try:
+            return discord.Color(int(normalized, 16))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _is_valid_image_url(value: str) -> bool:
+        lowered = value.lower().strip()
+        return lowered.startswith(("http://", "https://"))
+
+    @staticmethod
+    def _profile_title_text(member: discord.Member, custom_title: str | None) -> str:
+        custom_title = (custom_title or "").strip()
+        if custom_title:
+            return f"{member.name}. {custom_title}"
+        return member.name
+
     def _build_profile_embed(self, member: discord.Member) -> discord.Embed | None:
         row = self._sync_member_registration(member)
         if not row:
@@ -391,8 +426,15 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         total_gman = row[8] or 0
         total_eman = row[9] or 0
         total_mod = row[10] or 0
+        profile_color = row[11]
+        profile_image_url = row[12]
+        profile_title = row[13]
+        profile_bio = row[14]
 
-        embed = discord.Embed(title="Staff Profile", color=discord.Color.blurple())
+        embed = discord.Embed(
+            title=self._profile_title_text(member, profile_title),
+            color=self._parse_hex_color(profile_color) or discord.Color.blurple(),
+        )
         embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="Tracked Roles", value=", ".join(role.upper() for role in role_types) or "None", inline=False)
@@ -401,11 +443,14 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         embed.add_field(name="Birthday", value=self._format_date_string(birthday), inline=True)
         embed.add_field(name="On Break", value="Yes" if is_on_break else "No", inline=True)
         embed.add_field(name="SOTM Awards", value=str(sotm_count), inline=True)
+        embed.add_field(name="About Me", value=profile_bio or "Nothing added yet.", inline=False)
         embed.add_field(name="Lifetime Stats", value=(
             f"{GIVEAWAY_EMOJI} Giveaway pings: **{total_gman}**\n"
             f"{EVENT_EMOJI} Event pings: **{total_eman}**\n"
             f"{MOD_EMOJI} Mod messages: **{total_mod}**"
         ), inline=False)
+        if profile_image_url:
+            embed.set_image(url=profile_image_url)
         return embed
 
     async def _build_staff_overview_embed(self, guild: discord.Guild) -> discord.Embed:
@@ -834,6 +879,88 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             await ctx.send("That user is not registered in the staff logger.")
             return
         await ctx.send(embed=embed)
+
+    @app_commands.command(name="editprofile", description="Edit your staff profile card")
+    @app_commands.describe(
+        color="Hex color like #ff6600",
+        image_url="Image or GIF URL for the large bottom image",
+        title="Custom title shown as username. your title",
+        bio="About me text shown on your profile",
+    )
+    async def edit_profile_slash(
+        self,
+        interaction: discord.Interaction,
+        color: str | None = None,
+        image_url: str | None = None,
+        title: str | None = None,
+        bio: str | None = None,
+    ):
+        if not self._is_registered(interaction.user.id):
+            await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
+            return
+
+        if color is None and image_url is None and title is None and bio is None:
+            await interaction.response.send_message(
+                "Give me at least one thing to update: `color`, `image_url`, `title`, or `bio`.",
+                ephemeral=True,
+            )
+            return
+
+        updates: list[str] = []
+
+        if color is not None:
+            parsed_color = self._parse_hex_color(color)
+            if parsed_color is None:
+                await interaction.response.send_message(
+                    "That color is invalid. Use a 6-digit hex value like `#ff6600`.",
+                    ephemeral=True,
+                )
+                return
+            normalized_color = f"#{color.strip().lstrip('#').lower()}"
+            self._set_profile_field(interaction.user.id, "profile_color", normalized_color)
+            updates.append(f"Color: `{normalized_color}`")
+
+        if image_url is not None:
+            cleaned_url = image_url.strip()
+            if not self._is_valid_image_url(cleaned_url):
+                await interaction.response.send_message(
+                    "That image URL is invalid. Please use a full `http://` or `https://` link.",
+                    ephemeral=True,
+                )
+                return
+            self._set_profile_field(interaction.user.id, "profile_image_url", cleaned_url)
+            updates.append("Bottom image updated")
+
+        if title is not None:
+            cleaned_title = title.strip()
+            if len(cleaned_title) > 80:
+                await interaction.response.send_message(
+                    "That title is too long. Keep it under 80 characters.",
+                    ephemeral=True,
+                )
+                return
+            self._set_profile_field(interaction.user.id, "profile_title", cleaned_title or None)
+            title_preview = self._profile_title_text(interaction.user, cleaned_title or None)
+            updates.append(f"Title: `{title_preview}`")
+
+        if bio is not None:
+            cleaned_bio = bio.strip()
+            if len(cleaned_bio) > 500:
+                await interaction.response.send_message(
+                    "That bio is too long. Keep it under 500 characters.",
+                    ephemeral=True,
+                )
+                return
+            self._set_profile_field(interaction.user.id, "profile_bio", cleaned_bio or None)
+            updates.append("About Me updated")
+
+        embed = self._build_profile_embed(interaction.user)
+        if embed is None:
+            await interaction.response.send_message("Your profile could not be loaded.", ephemeral=True)
+            return
+
+        message = "Updated your profile.\n" + "\n".join(updates)
+        await interaction.response.send_message(message, embed=embed)
 
     @app_commands.command(name="enterbday", description="Set your birthday for your staff profile")
     async def enter_bday_slash(

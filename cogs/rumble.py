@@ -9,28 +9,152 @@ from discord.ext import commands
 
 
 RUMBLE_BOT_ID = 693167035068317736
-REVIVE_KEYWORDS = ("revived", "brought back", "came back", "returned to life")
+REVIVE_EMOJI_MARKERS = ("<:re:", "<a:re:", ":re:")
+REVIVE_PATTERNS = (
+    r"^(?P<name>.+?)\s+revived\b",
+    r"^(?P<name>.+?)\s+was revived\b",
+    r"^(?P<name>.+?)\s+came back\b",
+    r"^(?P<name>.+?)\s+returned to life\b",
+    r"^(?P<name>.+?)\s+was brought back\b",
+    r"^(?P<name>.+?)\s+got a second chance\b",
+    r"^(?P<name>.+?)\s+got another chance\b",
+    r"^(?P<name>.+?)\s+was given a second chance\b",
+    r"^(?P<name>.+?)\s+was spared\b",
+    r"^(?P<name>.+?)\s+was saved\b",
+    r"^(?P<name>.+?)\s+returned\b",
+)
+DEATH_PATTERNS = (
+    r"^(?P<name>.+?)\s+failed\b",
+    r"^(?P<name>.+?)\s+fell\b",
+    r"^(?P<name>.+?)\s+died\b",
+    r"^(?P<name>.+?)\s+was\b.+\bdispatched\b",
+    r"^(?P<name>.+?)\s+was\b.+\bkilled\b",
+    r"^(?P<name>.+?)\s+was\b.+\bslain\b",
+    r"^(?P<name>.+?)\s+was\b.+\beliminated\b",
+    r"^(?P<name>.+?)\s+was\b.+\bknocked out\b",
+    r"^(?P<name>.+?)\s+ended up\b.+\bfalling\b",
+    r"^(?P<name>.+?)\s+ended up\b.+\bshattering\b",
+)
 
 
 def clean_name(name: str) -> str:
     name = name.replace("\\", "")
     name = name.lower()
-    name = re.sub(r"\bthe\s+\w+", "", name)
+    name = re.sub(r"\bthe\b", "", name)
     name = name.strip()
     name = re.sub(r"[^a-z0-9]", "", name)
     return name
 
 
-def is_match(user_clean: str, target_clean: str) -> bool:
-    user_clean = clean_name(user_clean)
-    target_clean = clean_name(target_clean)
-    if user_clean == target_clean:
-        return True
-    if len(user_clean) > 4 and user_clean in target_clean:
-        return True
-    if len(target_clean) > 4 and target_clean in user_clean:
-        return True
+def extract_name_candidates(text: str) -> list[str]:
+    base = strip_formatting(text)
+    candidates = {base}
+
+    for match in re.findall(r"<@!?(\d+)>", text):
+        candidates.add(match)
+
+    separators = (
+        " by ",
+        " from ",
+        " with ",
+        " using ",
+        " into ",
+        " off ",
+        " out ",
+        " after ",
+        " before ",
+        " while ",
+        " when ",
+        " and ",
+        " vs ",
+        " versus ",
+    )
+
+    lowered = base.lower()
+    for separator in separators:
+        if separator in lowered:
+            left, _, right = base.partition(separator)
+            candidates.add(left)
+            candidates.add(right)
+
+    for piece in re.split(r"[,:;.!?\-\(\)\[\]\{\}\n]+", base):
+        piece = piece.strip()
+        if piece:
+            candidates.add(piece)
+
+    return [candidate.strip() for candidate in candidates if candidate.strip()]
+
+
+def is_match(user_names: list[str], target_text: str) -> bool:
+    target_variants = {clean_name(target_text)}
+    for candidate in extract_name_candidates(target_text):
+        target_variants.add(clean_name(candidate))
+
+    target_variants = {variant for variant in target_variants if variant}
+
+    for user_name in user_names:
+        user_clean = clean_name(user_name)
+        if not user_clean:
+            continue
+        for target_clean in target_variants:
+            if user_clean == target_clean:
+                return True
+            if len(user_clean) > 2 and user_clean in target_clean:
+                return True
+            if len(target_clean) > 2 and target_clean in user_clean:
+                return True
     return False
+
+
+def extract_death_target(line: str) -> str | None:
+    stripped = strip_formatting(line)
+
+    for raw in re.findall(r"~~(.*?)~~", line):
+        cleaned = strip_formatting(raw)
+        if cleaned:
+            return cleaned
+
+    lowered = stripped.lower()
+    for pattern in DEATH_PATTERNS:
+        match = re.search(pattern, lowered)
+        if match:
+            end = match.end("name")
+            return stripped[:end].strip(" :-")
+
+    return None
+
+
+def extract_revive_target(line: str) -> str | None:
+    stripped = strip_formatting(line)
+    lowered = stripped.lower()
+
+    for pattern in REVIVE_PATTERNS:
+        match = re.search(pattern, lowered)
+        if match:
+            end = match.end("name")
+            return stripped[:end].strip(" :-")
+
+    # Fallback for odd phrasing that still clearly indicates a second chance.
+    if "second chance" in lowered or "another chance" in lowered:
+        return stripped.split(" got ", 1)[0].split(" was ", 1)[0].strip(" :-")
+
+    return None
+
+
+def classify_round_line(line: str) -> tuple[str | None, str | None]:
+    if any(marker in line for marker in REVIVE_EMOJI_MARKERS):
+        revive_target = extract_revive_target(line) or strip_formatting(line)
+        return "revive", revive_target
+
+    death_target = extract_death_target(line)
+    if death_target:
+        return "death", death_target
+
+    revive_target = extract_revive_target(line)
+    if revive_target:
+        return "revive", revive_target
+
+    return None, None
 
 
 def strip_formatting(text: str) -> str:
@@ -89,12 +213,17 @@ class RumbleCog(commands.Cog, name="Rumble"):
 
     @staticmethod
     def _new_participant(member: discord.Member) -> dict:
+        aliases = [member.name, member.display_name]
+        if member.global_name:
+            aliases.append(member.global_name)
+
         return {
             "alive": True,
             "death_msg": None,
             "revive_msg": None,
             "second_death_msg": None,
             "name": member.name,
+            "aliases": aliases,
         }
 
     @staticmethod
@@ -110,6 +239,11 @@ class RumbleCog(commands.Cog, name="Rumble"):
         data["alive"] = True
         data["revive_msg"] = jump_url
         data["second_death_msg"] = None
+
+    @staticmethod
+    def _participant_matches(data: dict, text: str) -> bool:
+        names = data.get("aliases") or [data["name"]]
+        return is_match(names, text)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
@@ -185,19 +319,17 @@ class RumbleCog(commands.Cog, name="Rumble"):
                     continue
 
                 for line in embed.description.split("\n"):
-                    clean_line = clean_name(strip_formatting(line))
+                    event_type, target = classify_round_line(line)
+                    if not target:
+                        continue
 
-                    dead_players_raw = re.findall(r"~~(.*?)~~", line)
-                    for raw in dead_players_raw:
-                        dead_clean = clean_name(strip_formatting(raw))
-                        for data in rumble["participants"].values():
-                            if is_match(data["name"], dead_clean):
-                                self._mark_dead(data, message.jump_url)
-
-                    if any(keyword in line.lower() for keyword in REVIVE_KEYWORDS):
-                        for data in rumble["participants"].values():
-                            if is_match(data["name"], clean_line) or clean_name(data["name"]) in clean_line:
-                                self._mark_revived(data, message.jump_url)
+                    for data in rumble["participants"].values():
+                        if not self._participant_matches(data, target):
+                            continue
+                        if event_type == "death":
+                            self._mark_dead(data, message.jump_url)
+                        elif event_type == "revive":
+                            self._mark_revived(data, message.jump_url)
 
             view = AliveView(rumble)
             rumble["alive_views"].append(view)
