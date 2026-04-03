@@ -77,8 +77,155 @@ class StaffProgressView(discord.ui.View):
         await self._swap_embed(interaction, "eman")
 
 
+class ProfileEditModal(discord.ui.Modal):
+    def __init__(
+        self,
+        view: "ProfileEditView",
+        *,
+        field_name: str,
+        modal_title: str,
+        label: str,
+        placeholder: str,
+        default: str | None = None,
+        max_length: int = 400,
+        required: bool = False,
+    ):
+        super().__init__(title=modal_title)
+        self.view = view
+        self.field_name = field_name
+        self.value_input = discord.ui.TextInput(
+            label=label,
+            placeholder=placeholder,
+            default=default,
+            required=required,
+            max_length=max_length,
+            style=discord.TextStyle.paragraph if max_length > 120 else discord.TextStyle.short,
+        )
+        self.add_item(self.value_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        message = await self.view.apply_change(interaction, self.field_name, self.value_input.value)
+        if message:
+            await interaction.response.send_message(message, ephemeral=True)
+
+
+class ProfileEditView(discord.ui.View):
+    def __init__(self, cog: "StaffLoggerCog", member: discord.Member):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.member = member
+        self.requester_id = member.id
+        self.message: discord.Message | None = None
+        self.status_text = "Use the buttons below to customize your profile."
+
+    def _content(self) -> str:
+        return f"Profile editor for {self.member.mention}\n{self.status_text}"
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("Only the profile owner can use these buttons.", ephemeral=True)
+            return False
+        return True
+
+    async def _refresh_message(self):
+        if not self.message:
+            return
+        embed = self.cog._build_profile_embed(self.member)
+        if embed is None:
+            return
+        await self.message.edit(content=self._content(), embed=embed, view=self)
+
+    async def apply_change(self, interaction: discord.Interaction, field_name: str, raw_value: str) -> str | None:
+        error, update_text = self.cog._apply_profile_edit_value(interaction.user.id, field_name, raw_value)
+        if error:
+            return error
+
+        self.status_text = update_text
+        self.member = interaction.user
+        await interaction.response.defer()
+        await self._refresh_message()
+        return None
+
+    @discord.ui.button(label="Edit Title", style=discord.ButtonStyle.primary)
+    async def edit_title(self, interaction: discord.Interaction, button: discord.ui.Button):
+        row = self.cog._registered_row(interaction.user.id)
+        current = row[13] if row and len(row) > 13 else None
+        await interaction.response.send_modal(
+            ProfileEditModal(
+                self,
+                field_name="profile_title",
+                modal_title="Edit Profile Title",
+                label="Title",
+                placeholder="Leave blank to clear. Example: the king",
+                default=current,
+                max_length=80,
+            )
+        )
+
+    @discord.ui.button(label="Edit Color", style=discord.ButtonStyle.secondary)
+    async def edit_color(self, interaction: discord.Interaction, button: discord.ui.Button):
+        row = self.cog._registered_row(interaction.user.id)
+        current = row[11] if row and len(row) > 11 else None
+        await interaction.response.send_modal(
+            ProfileEditModal(
+                self,
+                field_name="profile_color",
+                modal_title="Edit Profile Color",
+                label="Hex Color",
+                placeholder="Leave blank to reset. Example: #ff6600",
+                default=current,
+                max_length=7,
+            )
+        )
+
+    @discord.ui.button(label="Edit About Me", style=discord.ButtonStyle.secondary)
+    async def edit_about(self, interaction: discord.Interaction, button: discord.ui.Button):
+        row = self.cog._registered_row(interaction.user.id)
+        current = row[14] if row and len(row) > 14 else None
+        await interaction.response.send_modal(
+            ProfileEditModal(
+                self,
+                field_name="profile_bio",
+                modal_title="Edit About Me",
+                label="About Me",
+                placeholder="Leave blank to clear your bio.",
+                default=current,
+                max_length=500,
+            )
+        )
+
+    @discord.ui.button(label="Edit Banner/GIF", style=discord.ButtonStyle.secondary)
+    async def edit_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        row = self.cog._registered_row(interaction.user.id)
+        current = row[12] if row and len(row) > 12 else None
+        await interaction.response.send_modal(
+            ProfileEditModal(
+                self,
+                field_name="profile_image_url",
+                modal_title="Edit Banner or GIF",
+                label="Image URL",
+                placeholder="Direct image/GIF link. Leave blank to clear.",
+                default=current,
+                max_length=400,
+            )
+        )
+
+    @discord.ui.button(label="Clear Banner", style=discord.ButtonStyle.danger)
+    async def clear_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        error, update_text = self.cog._apply_profile_edit_value(interaction.user.id, "profile_image_url", "")
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
+            return
+
+        self.status_text = update_text
+        self.member = interaction.user
+        await interaction.response.defer()
+        await self._refresh_message()
+
+
 class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     staff_group = app_commands.Group(name="staff", description="Staff management commands")
+    profile_group = app_commands.Group(name="profile", description="Staff profile commands")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -406,11 +553,92 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         return lowered.startswith(("http://", "https://"))
 
     @staticmethod
+    def _looks_like_direct_image_url(value: str) -> bool:
+        lowered = value.lower().split("?", 1)[0]
+        direct_suffixes = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+        trusted_hosts = (
+            "cdn.discordapp.com",
+            "media.discordapp.net",
+            "images-ext-1.discordapp.net",
+            "images-ext-2.discordapp.net",
+            "media.tenor.com",
+            "c.tenor.com",
+            "i.giphy.com",
+            "media.giphy.com",
+            "imagedelivery.net",
+            "imgur.com",
+            "i.imgur.com",
+        )
+        return lowered.endswith(direct_suffixes) or any(host in lowered for host in trusted_hosts)
+
+    def _normalize_profile_image_url(self, value: str | None) -> tuple[str | None, str | None]:
+        cleaned = (value or "").strip().strip("<>").strip()
+        if not cleaned:
+            return None, None
+        if not self._is_valid_image_url(cleaned):
+            return None, "That image URL is invalid. Please use a full `http://` or `https://` link."
+        lowered = cleaned.lower()
+        common_page_links = (
+            "tenor.com/view/",
+            "giphy.com/gifs/",
+            "imgur.com/gallery/",
+            "imgur.com/a/",
+        )
+        if any(part in lowered for part in common_page_links):
+            return None, (
+                "That looks like a page link, not a direct image or GIF. "
+                "Use the direct media URL ending in `.png`, `.jpg`, `.webp`, or `.gif`."
+            )
+        if not self._looks_like_direct_image_url(cleaned):
+            return cleaned, (
+                "Saved that banner URL, but if it does not render in Discord, use a direct image or GIF link "
+                "ending in `.png`, `.jpg`, `.webp`, or `.gif`."
+            )
+        return cleaned, None
+
+    @staticmethod
     def _profile_title_text(member: discord.Member, custom_title: str | None) -> str:
         custom_title = (custom_title or "").strip()
         if custom_title:
             return f"{member.name}. {custom_title}"
         return member.name
+
+    def _apply_profile_edit_value(self, user_id: int, field_name: str, raw_value: str) -> tuple[str | None, str]:
+        cleaned_value = (raw_value or "").strip()
+
+        if field_name == "profile_color":
+            if not cleaned_value:
+                self._set_profile_field(user_id, field_name, None)
+                return None, "Reset your profile color to the default."
+            parsed_color = self._parse_hex_color(cleaned_value)
+            if parsed_color is None:
+                return "That color is invalid. Use a 6-digit hex value like `#ff6600`.", ""
+            normalized_color = f"#{cleaned_value.lstrip('#').lower()}"
+            self._set_profile_field(user_id, field_name, normalized_color)
+            return None, f"Updated your profile color to `{normalized_color}`."
+
+        if field_name == "profile_title":
+            if len(cleaned_value) > 80:
+                return "That title is too long. Keep it under 80 characters.", ""
+            self._set_profile_field(user_id, field_name, cleaned_value or None)
+            return None, "Updated your profile title." if cleaned_value else "Cleared your profile title."
+
+        if field_name == "profile_bio":
+            if len(cleaned_value) > 500:
+                return "That bio is too long. Keep it under 500 characters.", ""
+            self._set_profile_field(user_id, field_name, cleaned_value or None)
+            return None, "Updated your About Me section." if cleaned_value else "Cleared your About Me section."
+
+        if field_name == "profile_image_url":
+            normalized_url, notice = self._normalize_profile_image_url(cleaned_value)
+            if cleaned_value and normalized_url is None and notice:
+                return notice, ""
+            self._set_profile_field(user_id, field_name, normalized_url)
+            if normalized_url:
+                return None, notice or "Updated your profile banner/GIF."
+            return None, "Cleared your profile banner/GIF."
+
+        return "That profile field can't be edited here.", ""
 
     def _build_profile_embed(self, member: discord.Member) -> discord.Embed | None:
         row = self._sync_member_registration(member)
@@ -856,7 +1084,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             return
         await ctx.send(embed=embed)
 
-    @app_commands.command(name="profile", description="Show your staff profile")
+    @profile_group.command(name="view", description="Show a staff profile")
     async def profile_slash(self, interaction: discord.Interaction, user: discord.Member | None = None):
         if not self._can_use_staff_commands(interaction.user):
             await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
@@ -880,87 +1108,19 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             return
         await ctx.send(embed=embed)
 
-    @app_commands.command(name="editprofile", description="Edit your staff profile card")
-    @app_commands.describe(
-        color="Hex color like #ff6600",
-        image_url="Image or GIF URL for the large bottom image",
-        title="Custom title shown as username. your title",
-        bio="About me text shown on your profile",
-    )
-    async def edit_profile_slash(
-        self,
-        interaction: discord.Interaction,
-        color: str | None = None,
-        image_url: str | None = None,
-        title: str | None = None,
-        bio: str | None = None,
-    ):
+    @profile_group.command(name="edit", description="Open the interactive profile editor")
+    async def edit_profile_slash(self, interaction: discord.Interaction):
         if not self._is_registered(interaction.user.id):
             await interaction.response.send_message(self._not_registered_message(), ephemeral=True)
             return
-
-        if color is None and image_url is None and title is None and bio is None:
-            await interaction.response.send_message(
-                "Give me at least one thing to update: `color`, `image_url`, `title`, or `bio`.",
-                ephemeral=True,
-            )
-            return
-
-        updates: list[str] = []
-
-        if color is not None:
-            parsed_color = self._parse_hex_color(color)
-            if parsed_color is None:
-                await interaction.response.send_message(
-                    "That color is invalid. Use a 6-digit hex value like `#ff6600`.",
-                    ephemeral=True,
-                )
-                return
-            normalized_color = f"#{color.strip().lstrip('#').lower()}"
-            self._set_profile_field(interaction.user.id, "profile_color", normalized_color)
-            updates.append(f"Color: `{normalized_color}`")
-
-        if image_url is not None:
-            cleaned_url = image_url.strip()
-            if not self._is_valid_image_url(cleaned_url):
-                await interaction.response.send_message(
-                    "That image URL is invalid. Please use a full `http://` or `https://` link.",
-                    ephemeral=True,
-                )
-                return
-            self._set_profile_field(interaction.user.id, "profile_image_url", cleaned_url)
-            updates.append("Bottom image updated")
-
-        if title is not None:
-            cleaned_title = title.strip()
-            if len(cleaned_title) > 80:
-                await interaction.response.send_message(
-                    "That title is too long. Keep it under 80 characters.",
-                    ephemeral=True,
-                )
-                return
-            self._set_profile_field(interaction.user.id, "profile_title", cleaned_title or None)
-            title_preview = self._profile_title_text(interaction.user, cleaned_title or None)
-            updates.append(f"Title: `{title_preview}`")
-
-        if bio is not None:
-            cleaned_bio = bio.strip()
-            if len(cleaned_bio) > 500:
-                await interaction.response.send_message(
-                    "That bio is too long. Keep it under 500 characters.",
-                    ephemeral=True,
-                )
-                return
-            self._set_profile_field(interaction.user.id, "profile_bio", cleaned_bio or None)
-            updates.append("About Me updated")
-
         embed = self._build_profile_embed(interaction.user)
         if embed is None:
             await interaction.response.send_message("Your profile could not be loaded.", ephemeral=True)
             return
 
-        message = "Updated your profile.\n" + "\n".join(updates)
-        await interaction.response.send_message(message, embed=embed)
+        view = ProfileEditView(self, interaction.user)
+        await interaction.response.send_message(view._content(), embed=embed, view=view)
+        view.message = await interaction.original_response()
 
     @app_commands.command(name="enterbday", description="Set your birthday for your staff profile")
     async def enter_bday_slash(
