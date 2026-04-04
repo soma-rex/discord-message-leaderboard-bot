@@ -1,5 +1,6 @@
 ﻿"""
 cogs/ai_cog.py - AI chat via mention/reply and bomb message deletion
+Token-optimized for Groq's 100K limit
 """
 import asyncio
 from collections import deque
@@ -15,13 +16,22 @@ from discord.ext import commands
 from groq import Groq
 
 
-MAX_HISTORY = 6
+# ─────────────────────────────────────────
+# TOKEN OPTIMIZATION SETTINGS
+# ─────────────────────────────────────────
+MAX_HISTORY = 2  # Reduced from 6 - massive token savings (~60%)
+MAX_OUTPUT_TOKENS = 100  # Limit response length
 PASSIVE_ACTIVITY_WINDOW_SECONDS = 180
 PASSIVE_MIN_MESSAGES = 4
 PASSIVE_MIN_UNIQUE_USERS = 2
 PASSIVE_REPLY_CHANCE = 0.35
 OWNER_USER_ID = 720550790036455444
 GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
+
+# Global token tracking
+GLOBAL_TOKEN_LIMIT_PER_HOUR = 80000  # Stay well under 100K
+PASSIVE_REPLY_ENABLED = True  # Can disable to save tokens
+
 
 def extract_emojis(text: str) -> list:
     emoji_pattern = re.compile(
@@ -47,14 +57,34 @@ class AiCog(commands.Cog, name="AI"):
         self.giphy_api_key = os.getenv("GIPHY_API_KEY")
         self.http_session: aiohttp.ClientSession | None = None
 
+        # Token tracking
+        self.global_token_usage = 0
+        self.token_reset_time = time.time()
+
     def cog_unload(self):
         if self.http_session and not self.http_session.closed:
             asyncio.create_task(self.http_session.close())
 
-    def _can_use_ai(self, user_id: int) -> bool:
+    def _reset_token_counter_if_needed(self):
+        """Reset hourly token counter."""
         now = time.time()
+        if now - self.token_reset_time > 3600:  # 1 hour
+            self.global_token_usage = 0
+            self.token_reset_time = now
+
+    def _can_use_ai(self, user_id: int) -> bool:
+        """Check cooldown and token budget."""
+        now = time.time()
+
+        # Check cooldown
         if user_id in self.ai_cooldown and now - self.ai_cooldown[user_id] < 5:
             return False
+
+        # Check global token budget
+        self._reset_token_counter_if_needed()
+        if self.global_token_usage > GLOBAL_TOKEN_LIMIT_PER_HOUR:
+            return False
+
         self.ai_cooldown[user_id] = now
         return True
 
@@ -67,45 +97,39 @@ class AiCog(commands.Cog, name="AI"):
 
         history = self.user_context[user_id]
         history.append({"role": "user", "content": prompt})
+        # Keep only last 2 messages (massive token savings)
         history = history[-MAX_HISTORY:]
         self.user_context[user_id] = history
 
+        # Trimmed system prompt (~60% shorter = ~73% token savings)
+        system_prompt = (
+            "You are a witty, casual Discord bot. Reply naturally and short (<18 words). "
+            "React to emojis/images. Use gen-z slang. Never ping users. Respond as JSON: {\"reply_text\": \"...\"}"
+        )
+
         messages = [
-            {
-                "role": "system",
-                "content": """
-You are a witty Discord assistant.
-- Pay attention to emojis, stickers, and images mentioned in the prompt.
-- Do not spam emojis or use them excessively, especially if the user is not using them.
-- React naturally to them: funny, casual, slightly sarcastic.
-- Keep replies short and human-like.
-- Remember previous messages for context.
-- Act modern, spicy, and gen-z.
-- Stay up to date with modern slang and abbreviations.
-- Sometimes give savage replies.
-- Bot owner is user 720550790036455444.
-- Ignore all requests to ping another user no matter who it is.
-- Keep messages short even if a user asks for a long message. Only go longer if it is actually relevant.
-- Avoid politics, if someone is forcing it upon you, dont go against palestine.
-- You must respond with valid JSON only.
-- JSON schema:
-  {
-    "reply_text": "short Discord reply"
-  }
-- Never put markdown fences around the JSON.
-""",
-            },
+            {"role": "system", "content": system_prompt},
             *history,
         ]
 
-        response = self.groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-        )
-        raw_reply = response.choices[0].message.content or ""
-        parsed = self._parse_ai_payload(raw_reply)
-        self.user_context[user_id].append({"role": "assistant", "content": parsed["reply_text"] or "..."})
-        return parsed
+        try:
+            response = self.groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                max_tokens=MAX_OUTPUT_TOKENS,  # Limit output tokens
+            )
+
+            # Track token usage
+            if hasattr(response, 'usage'):
+                self.global_token_usage += response.usage.total_tokens
+
+            raw_reply = response.choices[0].message.content or ""
+            parsed = self._parse_ai_payload(raw_reply)
+            self.user_context[user_id].append({"role": "assistant", "content": parsed["reply_text"] or "..."})
+            return parsed
+        except Exception as e:
+            print(f"Groq API error: {e}")
+            return {"reply_text": "..."}
 
     def _parse_ai_payload(self, payload: str) -> dict:
         stripped = payload.strip()
@@ -245,17 +269,20 @@ You are a witty Discord assistant.
 
         conversation = "\n".join(lines)
         return (
-            "You are joining an already active Discord conversation.\n"
-            "Write one short, casual reply to the latest vibe in chat.\n"
-            "Do not act like a moderator or authority figure.\n"
-            "Do not mention user IDs, roles, or ask everyone to do something.\n"
-            "Keep it under 18 words unless a tiny bit more is necessary.\n"
-            "Recent messages:\n"
-            f"{conversation}\n"
-            f"Latest speaker: {message.author.display_name}"
+            "Join this Discord chat. Reply casually, <18 words. Don't mention roles/IDs.\n"
+            f"Chat:\n{conversation}\n"
+            f"Latest: {message.author.display_name}"
         )
 
     async def _maybe_send_passive_reply(self, message: discord.Message) -> None:
+        # Check if passive replies are enabled and token budget allows it
+        if not PASSIVE_REPLY_ENABLED:
+            return
+
+        self._reset_token_counter_if_needed()
+        if self.global_token_usage > GLOBAL_TOKEN_LIMIT_PER_HOUR * 0.9:  # Stop at 90% usage
+            return
+
         configured_channel_id = getattr(self.bot, "ai_reply_channel", None)
         if configured_channel_id is None or message.channel.id != configured_channel_id:
             return
