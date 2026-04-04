@@ -1367,17 +1367,18 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         user: discord.Member,
         days: app_commands.Range[int, 1, 365] | None = None,
     ):
+        await interaction.response.defer()
         role_types = self._resolve_role_types(user)
         row = self._registered_row(user.id)
         stored_roles = role_types or (self._parse_role_types(row[0]) if row else [])
         if not stored_roles:
-            await interaction.response.send_message("That user has no trackable staff role.", ephemeral=True)
+            await interaction.followup.send("That user has no trackable staff role.", ephemeral=True)
             return
 
         removed_roles = [role for role in user.roles if role.id in STAFF_ROLE_IDS and role.id != TOUCHING_GRASS_ROLE_ID]
         break_role = interaction.guild.get_role(TOUCHING_GRASS_ROLE_ID)
         if break_role is None:
-            await interaction.response.send_message("Touching Grass role not found.", ephemeral=True)
+            await interaction.followup.send("Touching Grass role not found.", ephemeral=True)
             return
 
         break_until = None
@@ -1409,13 +1410,26 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 ),
                 inline=False,
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
             return
 
-        if removed_roles:
-            await user.remove_roles(*removed_roles, reason="Staff break enabled")
-        if break_role not in user.roles:
-            await user.add_roles(break_role, reason="Staff break enabled")
+        try:
+            if removed_roles:
+                await user.remove_roles(*removed_roles, reason="Staff break enabled")
+            if break_role not in user.roles:
+                await user.add_roles(break_role, reason="Staff break enabled")
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I couldn't change that user's roles. Check my role position and permissions.",
+                ephemeral=True,
+            )
+            return
+        except discord.HTTPException:
+            await interaction.followup.send(
+                "Discord failed while updating that user's roles. Try again in a moment.",
+                ephemeral=True,
+            )
+            return
 
         saved_roles = ",".join(str(role.id) for role in removed_roles)
         self.cursor.execute(
@@ -1445,21 +1459,35 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             ),
             inline=False,
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @staff_group.command(name="endbreak", description="Restore a staff member from break")
     @app_commands.checks.has_permissions(administrator=True)
     async def staff_end_break(self, interaction: discord.Interaction, user: discord.Member):
+        await interaction.response.defer()
         row = self._registered_row(user.id)
         if not row or not row[1]:
-            await interaction.response.send_message("That user is not currently on break.", ephemeral=True)
+            await interaction.followup.send("That user is not currently on break.", ephemeral=True)
             return
 
-        restored = await self._restore_member_roles(
-            user,
-            row[2],
-            reason="Staff break ended manually",
-        )
+        try:
+            restored = await self._restore_member_roles(
+                user,
+                row[2],
+                reason="Staff break ended manually",
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I couldn't restore that user's roles. Check my role position and permissions.",
+                ephemeral=True,
+            )
+            return
+        except discord.HTTPException:
+            await interaction.followup.send(
+                "Discord failed while restoring that user's roles. Try again in a moment.",
+                ephemeral=True,
+            )
+            return
         self.cursor.execute(
             """
             UPDATE staff_users
@@ -1473,7 +1501,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         embed = discord.Embed(title="Staff Break Ended", color=discord.Color.green())
         embed.add_field(name="User", value=user.mention, inline=True)
         embed.add_field(name="Roles Restored", value="Yes" if restored else "No saved roles to restore", inline=True)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @staff_group.command(name="sethiredate", description="Manually set a user's hired date")
     @app_commands.checks.has_permissions(administrator=True)
