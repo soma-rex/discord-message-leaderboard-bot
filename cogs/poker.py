@@ -411,12 +411,13 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
 
 
 class PokerBetView(discord.ui.View):
-    def __init__(self, channel_id: int, cog: "PokerCog", *, hand_number: int, expected_user_id: int):
+    def __init__(self, channel_id: int, cog: "PokerCog", *, hand_number: int, expected_user_id: int, expected_phase: str):
         super().__init__(timeout=TURN_TIMEOUT_SECONDS)
         self.channel_id = channel_id
         self.cog = cog
         self.hand_number = hand_number
         self.expected_user_id = expected_user_id
+        self.expected_phase = expected_phase
 
     def get_game(self) -> dict | None:
         return self.cog.poker_games.get(self.channel_id)
@@ -427,8 +428,7 @@ class PokerBetView(discord.ui.View):
             return None, None, "No active hand."
         if game["hand_number"] != self.hand_number:
             return game, None, "That action prompt belongs to an older hand. Use the newest poker message."
-        action_message = game.get("action_message")
-        if action_message is not None and interaction.message is not None and interaction.message.id != action_message.id:
+        if game["phase"] != self.expected_phase:
             return game, None, "That action prompt is out of date. Use the newest poker message."
         current_uid = game["player_order"][game["turn_index"]]
         if current_uid != self.expected_user_id:
@@ -461,6 +461,8 @@ class PokerBetView(discord.ui.View):
         if not game or not game["hand_active"]:
             return
         if game["hand_number"] != self.hand_number:
+            return
+        if game["phase"] != self.expected_phase:
             return
 
         current_uid = game["player_order"][game["turn_index"]]
@@ -959,6 +961,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             self,
             hand_number=game["hand_number"],
             expected_user_id=mention_user_id,
+            expected_phase=game["phase"],
         )
         if current_message is not None:
             try:
