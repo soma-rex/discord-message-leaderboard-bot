@@ -23,6 +23,7 @@ TRIAL_MODERATOR_ROLE_ID = 996371928493330534
 TOUCHING_GRASS_ROLE_ID = 1128285153135955978
 BASIC_STAFF_ROLE_ID = 996372307528384583
 SOTM_ROLE_ID = 1134767539356962917
+HIDE_FROM_STAFF_PROGRESS_ROLE_ID = 996371760494694430
 
 GMAN_TRIGGER_ROLE_IDS = {
     1107542167746007080,
@@ -519,6 +520,19 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     async def _display_name_fixed(self, guild: discord.Guild | None, user_id: int) -> str:
         return f"<@{user_id}>"
 
+    async def _should_hide_from_staff_progress(self, guild: discord.Guild | None, user_id: int) -> bool:
+        if guild is None:
+            return False
+
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except discord.HTTPException:
+                return False
+
+        return any(role.id == HIDE_FROM_STAFF_PROGRESS_ROLE_ID for role in member.roles)
+
     def _is_registered(self, user_id: int) -> bool:
         return self._registered_row(user_id) is not None
 
@@ -723,6 +737,8 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
         sections: dict[str, list[str]] = {"gman": [], "eman": [], "mod": []}
         for user_id, role_type_value, is_on_break in staff_rows:
+            if await self._should_hide_from_staff_progress(guild, user_id):
+                continue
             role_types = self._parse_role_types(role_type_value)
             if not role_types:
                 continue
@@ -789,6 +805,8 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
 
         section_lines: list[str] = []
         for user_id, role_type_value, is_on_break in staff_rows:
+            if await self._should_hide_from_staff_progress(guild, user_id):
+                continue
             role_types = self._parse_role_types(role_type_value)
             if not role_types:
                 continue
@@ -845,16 +863,19 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             if break_until is None or break_until > now:
                 continue
 
-            restored = False
+            clear_break_state = True
             for guild in self.bot.guilds:
                 member = guild.get_member(user_id)
                 if member is None:
                     continue
 
-                restored = await self._restore_member_roles(member, saved_roles, reason="Timed staff break expired")
+                try:
+                    await self._restore_member_roles(member, saved_roles, reason="Timed staff break expired")
+                except discord.HTTPException:
+                    clear_break_state = False
                 break
 
-            if restored:
+            if clear_break_state:
                 self.cursor.execute(
                     """
                     UPDATE staff_users
@@ -869,9 +890,14 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         break_role = member.guild.get_role(TOUCHING_GRASS_ROLE_ID)
         roles_to_add = []
         for role_id_text in (saved_roles or "").split(","):
+            role_id_text = role_id_text.strip()
             if not role_id_text:
                 continue
-            role = member.guild.get_role(int(role_id_text))
+            try:
+                role_id = int(role_id_text)
+            except ValueError:
+                continue
+            role = member.guild.get_role(role_id)
             if role is not None and role not in member.roles:
                 roles_to_add.append(role)
 
@@ -1354,15 +1380,44 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             await interaction.response.send_message("Touching Grass role not found.", ephemeral=True)
             return
 
+        break_until = None
+        if days is not None:
+            break_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+        if row and row[1]:
+            saved_roles = row[2]
+            self.cursor.execute(
+                """
+                UPDATE staff_users
+                SET role_type = ?, break_until = ?
+                WHERE user_id = ?
+                """,
+                (self._serialize_role_types(stored_roles), break_until, user.id),
+            )
+            self.conn.commit()
+
+            embed = discord.Embed(title="Staff Break Updated", color=discord.Color.orange())
+            embed.add_field(name="User", value=user.mention, inline=True)
+            embed.add_field(name="Stored Roles", value=", ".join(role.upper() for role in stored_roles), inline=True)
+            embed.add_field(name="Saved Discord Roles", value="Stored" if saved_roles else "None saved", inline=True)
+            embed.add_field(
+                name="Duration",
+                value=(
+                    f"{days} day(s)\nEnds: <t:{int(self._parse_break_until(break_until).timestamp())}:R>"
+                    if break_until is not None
+                    else "Permanent until changed manually"
+                ),
+                inline=False,
+            )
+            await interaction.response.send_message(embed=embed)
+            return
+
         if removed_roles:
             await user.remove_roles(*removed_roles, reason="Staff break enabled")
         if break_role not in user.roles:
             await user.add_roles(break_role, reason="Staff break enabled")
 
         saved_roles = ",".join(str(role.id) for role in removed_roles)
-        break_until = None
-        if days is not None:
-            break_until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
         self.cursor.execute(
             """
             INSERT INTO staff_users (user_id, role_type, is_on_break, saved_roles, break_until)
