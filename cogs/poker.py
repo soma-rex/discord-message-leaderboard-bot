@@ -444,6 +444,18 @@ class PokerBetView(discord.ui.View):
             return game, None, "You already acted this street."
         return game, player, None
 
+    async def _handle_guard_error(self, interaction: discord.Interaction, game: dict | None, error: str) -> bool:
+        if error and "out of date" in error and game and game["hand_active"] and interaction.channel is not None:
+            current_uid = game["player_order"][game["turn_index"]]
+            await self.cog._send_turn_prompt(interaction.channel, game, current_uid)
+            await send_interaction_message(
+                interaction,
+                "That button came from an older poker prompt, so I resent the current turn message.",
+                ephemeral=True,
+            )
+            return True
+        return False
+
     def _advance_turn_index(self, game: dict) -> None:
         if not game["player_order"]:
             return
@@ -593,6 +605,8 @@ class PokerBetView(discord.ui.View):
     async def fold(self, interaction: discord.Interaction, button: discord.ui.Button):
         game, player, error = self._guard(interaction)
         if error:
+            if await self._handle_guard_error(interaction, game, error):
+                return
             await interaction.response.send_message(error, ephemeral=True)
             return
 
@@ -609,6 +623,8 @@ class PokerBetView(discord.ui.View):
     async def check(self, interaction: discord.Interaction, button: discord.ui.Button):
         game, player, error = self._guard(interaction)
         if error:
+            if await self._handle_guard_error(interaction, game, error):
+                return
             await interaction.response.send_message(error, ephemeral=True)
             return
         if player["bet"] != game["current_bet"]:
@@ -627,6 +643,8 @@ class PokerBetView(discord.ui.View):
     async def call(self, interaction: discord.Interaction, button: discord.ui.Button):
         game, player, error = self._guard(interaction)
         if error:
+            if await self._handle_guard_error(interaction, game, error):
+                return
             await interaction.response.send_message(error, ephemeral=True)
             return
         amount = game["current_bet"] - player["bet"]
@@ -656,6 +674,8 @@ class PokerBetView(discord.ui.View):
     async def raise_bet(self, interaction: discord.Interaction, button: discord.ui.Button):
         game, player, error = self._guard(interaction)
         if error:
+            if await self._handle_guard_error(interaction, game, error):
+                return
             await interaction.response.send_message(error, ephemeral=True)
             return
         await interaction.response.send_modal(RaiseModal(self))
@@ -664,6 +684,8 @@ class PokerBetView(discord.ui.View):
     async def all_in(self, interaction: discord.Interaction, button: discord.ui.Button):
         game, player, error = self._guard(interaction)
         if error:
+            if await self._handle_guard_error(interaction, game, error):
+                return
             await interaction.response.send_message(error, ephemeral=True)
             return
         if player["stack"] <= 0:
