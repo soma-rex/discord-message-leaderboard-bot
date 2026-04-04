@@ -1,5 +1,6 @@
 ﻿
 import asyncio
+import logging
 import random
 import time
 from collections import Counter
@@ -67,9 +68,31 @@ TURN_TIMEOUT_SECONDS = 300
 INACTIVITY_TIMEOUT_SECONDS = 1800
 HAND_START_DELAY_SECONDS = 15
 
+logger = logging.getLogger(__name__)
+
 
 def is_owner(interaction: discord.Interaction) -> bool:
     return interaction.user.id == 720550790036455444
+
+
+async def send_interaction_message(
+    interaction: discord.Interaction,
+    content: str | None = None,
+    *,
+    embed: discord.Embed | None = None,
+    view: discord.ui.View | None = None,
+    ephemeral: bool = False,
+) -> None:
+    if interaction.response.is_done():
+        await interaction.followup.send(content=content, embed=embed, view=view, ephemeral=ephemeral)
+        return
+    await interaction.response.send_message(content=content, embed=embed, view=view, ephemeral=ephemeral)
+
+
+async def defer_interaction(interaction: discord.Interaction, *, ephemeral: bool = False) -> None:
+    if interaction.response.is_done():
+        return
+    await interaction.response.defer(ephemeral=ephemeral)
 
 
 async def fetch_display_name(client: discord.Client, guild, user_id: int) -> str:
@@ -302,6 +325,17 @@ class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
             raise_cap=raise_cap,
         )
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        logger.exception("Custom poker table modal failed", exc_info=error)
+        try:
+            await send_interaction_message(
+                interaction,
+                "Something went wrong while creating the table. Please try again.",
+                ephemeral=True,
+            )
+        except discord.DiscordException:
+            pass
+
 
 class RaiseModal(discord.ui.Modal, title="Custom Raise"):
     raise_amount = discord.ui.TextInput(
@@ -346,6 +380,7 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
             await interaction.response.send_message("Not enough table chips. Try All-In.", ephemeral=True)
             return
 
+        await defer_interaction(interaction, ephemeral=True)
         self.view.cog._touch_game(game)
         player["stack"] -= amount
         player["bet"] = target
@@ -359,9 +394,20 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
                 other["acted"] = False
 
         self.view._advance_turn_index(game)
-        await interaction.response.send_message(f"Raised by **{raise_by}** to **{target}**.", ephemeral=True)
+        await send_interaction_message(interaction, f"Raised by **{raise_by}** to **{target}**.", ephemeral=True)
         await self.view._announce_action(interaction.channel, interaction.user, f"raised by **{raise_by}** to **{target}**.")
         await self.view.resolve_turn(interaction.channel)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        logger.exception("Poker raise modal failed", exc_info=error)
+        try:
+            await send_interaction_message(
+                interaction,
+                "That raise failed to go through. Please use the newest poker message and try again.",
+                ephemeral=True,
+            )
+        except discord.DiscordException:
+            pass
 
 
 class PokerBetView(discord.ui.View):
@@ -440,6 +486,17 @@ class PokerBetView(discord.ui.View):
             )
         )
         await self.resolve_turn(channel)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
+        logger.exception("Poker action view failed", exc_info=error)
+        try:
+            await send_interaction_message(
+                interaction,
+                "That poker action failed. Please use the newest poker message and try again.",
+                ephemeral=True,
+            )
+        except discord.DiscordException:
+            pass
 
     async def _announce_action(self, channel: discord.TextChannel, user: discord.Member, action: str):
         await channel.send(
@@ -537,11 +594,12 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message(error, ephemeral=True)
             return
 
+        await defer_interaction(interaction, ephemeral=True)
         self.cog._touch_game(game)
         player["folded"] = True
         player["acted"] = True
         self._advance_turn_index(game)
-        await interaction.response.send_message("You folded.", ephemeral=True)
+        await send_interaction_message(interaction, "You folded.", ephemeral=True)
         await self._announce_action(interaction.channel, interaction.user, "folded.")
         await self.resolve_turn(interaction.channel)
 
@@ -555,10 +613,11 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message("You can't check while you're behind the current bet.", ephemeral=True)
             return
 
+        await defer_interaction(interaction, ephemeral=True)
         self.cog._touch_game(game)
         player["acted"] = True
         self._advance_turn_index(game)
-        await interaction.response.send_message("Checked.", ephemeral=True)
+        await send_interaction_message(interaction, "Checked.", ephemeral=True)
         await self._announce_action(interaction.channel, interaction.user, "checked.")
         await self.resolve_turn(interaction.channel)
 
@@ -573,6 +632,7 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message("Nothing to call. Use Check.", ephemeral=True)
             return
 
+        await defer_interaction(interaction, ephemeral=True)
         self.cog._touch_game(game)
         if player["stack"] <= amount:
             amount = player["stack"]
@@ -586,7 +646,7 @@ class PokerBetView(discord.ui.View):
         self._advance_turn_index(game)
 
         suffix = " and is now all-in" if player["all_in"] else ""
-        await interaction.response.send_message(f"Called **{amount}**{suffix}.", ephemeral=True)
+        await send_interaction_message(interaction, f"Called **{amount}**{suffix}.", ephemeral=True)
         await self._announce_action(interaction.channel, interaction.user, f"called **{amount}**{suffix}.")
         await self.resolve_turn(interaction.channel)
 
@@ -608,6 +668,7 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message("You have no chips left at the table.", ephemeral=True)
             return
 
+        await defer_interaction(interaction, ephemeral=True)
         self.cog._touch_game(game)
         chips = player["stack"]
         player["stack"] = 0
@@ -624,7 +685,8 @@ class PokerBetView(discord.ui.View):
                     other["acted"] = False
 
         self._advance_turn_index(game)
-        await interaction.response.send_message(
+        await send_interaction_message(
+            interaction,
             f"All-in with **{chips}** chips. Your total bet is now **{player['bet']}**.",
             ephemeral=True,
         )
@@ -660,6 +722,17 @@ class PokerTableView(discord.ui.View):
 
     def get_game(self) -> dict | None:
         return self.cog.poker_games.get(self.channel_id)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
+        logger.exception("Poker table view failed", exc_info=error)
+        try:
+            await send_interaction_message(
+                interaction,
+                "That poker button failed. Please try again.",
+                ephemeral=True,
+            )
+        except discord.DiscordException:
+            pass
 
     @discord.ui.button(label="Players", style=discord.ButtonStyle.secondary, row=0)
     async def show_players(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -889,14 +962,9 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         )
         if current_message is not None:
             try:
-                await current_message.edit(
-                    content=f"<@{mention_user_id}>",
-                    embed=build_game_embed(game),
-                    view=view,
-                )
-                return
+                await current_message.edit(view=None)
             except Exception:
-                game["action_message"] = None
+                pass
 
         message = await channel.send(
             f"<@{mention_user_id}>",
