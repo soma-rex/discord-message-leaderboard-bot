@@ -15,7 +15,7 @@ HELP_PAGES = {
         ),
         "fields": [
             ("Help", "`/help` `;help`", False),
-            ("Games", "`/daily` `/chips` `/chipsleaderboard` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
+            ("Games", "`/daily` `/chips` `/leaderboard chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
             ("Fun", "`/roast` `/recommend` `/lurking` `;bomb` `;roast` `;recommend`", False),
             ("Staff", "`/register` `/profile` `/weeklyprogress` `/staffprogress` `/sotm` `/staff break` `/staff endbreak`", False),
@@ -26,7 +26,7 @@ HELP_PAGES = {
         "title": "Help - Games",
         "description": "Casino commands and chip economy.",
         "fields": [
-            ("Shared economy", "`/daily` Claim your shared daily chips\n`/chips` Check your chip balance\n`/chipsleaderboard` View the top balances", False),
+            ("Shared economy", "`/daily` Claim your shared daily chips\n`/chips` Check your chip balance\n`/leaderboard chips` View the top balances", False),
             ("Poker", "`/poker create` Open a table\n`/poker join` Buy in or rebuy\n`/poker start` Start the endless table\n`/poker end` End the table and refund stacks", False),
             ("Blackjack", "`/blackjack play <bet>`", False),
             ("Roulette", "`/roulette spin <bet_type> <bet>`\n`/roulette table`", False),

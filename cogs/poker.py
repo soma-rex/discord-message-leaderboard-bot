@@ -686,6 +686,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     """Texas Hold'em poker tables that continue until the table ends."""
 
     poker_group = app_commands.Group(name="poker", description="Texas Hold'em with chips")
+    leaderboard_group = app_commands.Group(name="leaderboard", description="Leaderboard commands")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -1312,7 +1313,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             )
         )
 
-    @app_commands.command(name="chipsleaderboard", description="Show the richest chip balances")
+    @leaderboard_group.command(name="chips", description="Show the richest chip balances")
     async def chips_leaderboard(self, interaction: discord.Interaction):
         self.cursor.execute("SELECT user_id, chips FROM poker_chips ORDER BY chips DESC LIMIT 10")
         leaders = self.cursor.fetchall()
@@ -1341,7 +1342,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             description="\n".join(lines),
             color=discord.Color.gold(),
         )
-        embed.set_footer(text=f"Your Rank: #{user_rank} | Your Balance: {self.get_chips(interaction.user.id):,} {CHIP_EMOJI}")
+        embed.set_footer(text=f"Your Rank: #{user_rank} | Your Balance: {self.get_chips(interaction.user.id):,}")
         await interaction.response.send_message(embed=embed)
 
     @poker_group.command(name="create", description="Create a poker table")

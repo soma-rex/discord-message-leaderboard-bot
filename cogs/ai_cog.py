@@ -23,9 +23,10 @@ PASSIVE_REPLY_CHANCE = 0.35
 GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
 GIPHY_TRENDING_SEARCHES_URL = "https://api.giphy.com/v1/trending/searches"
 GIF_ONLY_CHANCE = 0.12
-GIF_WITH_TEXT_CHANCE = 0.28
 GIF_USER_COOLDOWN_SECONDS = 30
 GIF_CHANNEL_COOLDOWN_SECONDS = 12
+MAX_GIFS_PER_HOUR = 100
+GIF_WINDOW_SECONDS = 3600
 MAX_GIF_QUERY_WORDS = 6
 SAFE_GIF_HINT = "reaction"
 TRENDING_CACHE_SECONDS = 1800
@@ -187,6 +188,7 @@ class AiCog(commands.Cog, name="AI"):
         self.trending_cache_time = 0.0
         self.passive_channel_history: dict[int, deque] = {}
         self.passive_channel_last_reply: dict[int, float] = {}
+        self.gif_send_times: deque = deque()
 
     def cog_unload(self):
         if self.http_session and not self.http_session.closed:
@@ -233,10 +235,9 @@ You are a witty Discord assistant.
   {
     "reply_text": "short Discord reply",
     "gif_query": "short GIPHY search phrase or empty string",
-    "gif_mode": "text" | "gif" | "both"
+    "gif_mode": "text" | "gif"
   }
 - Most of the time choose "text".
-- Choose "both" only when a reaction GIF would clearly add to the message.
 - Choose "gif" only when the moment is expressive enough to work with just a GIF.
 - gif_query must be 2-6 words, natural for reaction GIF search, and usually emotion-based.
 - gif_query must stay strictly non-sexual, non-romantic, non-flirty, and safe for work.
@@ -281,7 +282,9 @@ You are a witty Discord assistant.
         gif_query = str(data.get("gif_query", "")).strip()
         gif_mode = str(data.get("gif_mode", "text")).strip().lower()
 
-        if gif_mode not in {"text", "gif", "both"}:
+        if gif_mode == "both":
+            gif_mode = "gif" if gif_query else "text"
+        if gif_mode not in {"text", "gif"}:
             gif_mode = "text"
         if len(gif_query.split()) > MAX_GIF_QUERY_WORDS:
             gif_query = " ".join(gif_query.split()[:MAX_GIF_QUERY_WORDS])
@@ -333,23 +336,11 @@ You are a witty Discord assistant.
         if not has_gif:
             return "text"
 
-        roll = random.random()
         if requested_mode == "gif":
-            if roll < 0.45:
-                return "gif"
-            if roll < 0.85:
-                return "both"
-            return "text"
-
-        if requested_mode == "both":
-            if roll < 0.60:
-                return "both"
-            return "text"
-
-        if roll < GIF_ONLY_CHANCE:
             return "gif"
-        if roll < GIF_ONLY_CHANCE + GIF_WITH_TEXT_CHANCE:
-            return "both"
+
+        if random.random() < GIF_ONLY_CHANCE:
+            return "gif"
         return "text"
 
     def _contains_blocked_terms(self, text: str) -> bool:
@@ -457,6 +448,11 @@ You are a witty Discord assistant.
             return False
 
         now = time.time()
+        while self.gif_send_times and now - self.gif_send_times[0] >= GIF_WINDOW_SECONDS:
+            self.gif_send_times.popleft()
+        if len(self.gif_send_times) >= MAX_GIFS_PER_HOUR:
+            return False
+
         user_last = self.gif_user_cooldown.get(message.author.id, 0)
         channel_last = self.gif_channel_cooldown.get(message.channel.id, 0)
         if now - user_last < GIF_USER_COOLDOWN_SECONDS:
@@ -469,6 +465,7 @@ You are a witty Discord assistant.
         now = time.time()
         self.gif_user_cooldown[message.author.id] = now
         self.gif_channel_cooldown[message.channel.id] = now
+        self.gif_send_times.append(now)
 
     def _is_safe_giphy_item(self, item: dict) -> bool:
         rating = str(item.get("rating", "")).casefold()
@@ -539,13 +536,6 @@ You are a witty Discord assistant.
         if delivery_mode == "gif" and gif_url:
             self._mark_gif_sent(message)
             await message.reply(gif_url, allowed_mentions=allowed_mentions)
-            return
-
-        if delivery_mode == "both" and gif_url:
-            self._mark_gif_sent(message)
-            embed = discord.Embed(color=discord.Color.blurple())
-            embed.set_image(url=gif_url)
-            await message.reply(reply_text or gif_query or "...", embed=embed, allowed_mentions=allowed_mentions)
             return
 
         await message.reply(reply_text or "...", allowed_mentions=allowed_mentions)
