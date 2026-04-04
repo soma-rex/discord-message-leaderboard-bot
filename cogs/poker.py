@@ -72,6 +72,17 @@ def is_owner(interaction: discord.Interaction) -> bool:
     return interaction.user.id == 720550790036455444
 
 
+async def fetch_display_name(client: discord.Client, guild, user_id: int) -> str:
+    member = guild.get_member(user_id) if guild else None
+    if member:
+        return member.display_name
+    try:
+        user = await client.fetch_user(user_id)
+    except discord.DiscordException:
+        return f"User {user_id}"
+    return user.name
+
+
 def build_deck() -> list[str]:
     deck = [f"{rank}{suit}" for suit in SUITS for rank in RANKS]
     random.shuffle(deck)
@@ -1300,6 +1311,38 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 color=discord.Color.gold(),
             )
         )
+
+    @app_commands.command(name="chipsleaderboard", description="Show the richest chip balances")
+    async def chips_leaderboard(self, interaction: discord.Interaction):
+        self.cursor.execute("SELECT user_id, chips FROM poker_chips ORDER BY chips DESC LIMIT 10")
+        leaders = self.cursor.fetchall()
+        if not leaders:
+            await interaction.response.send_message("No chip data yet.", ephemeral=True)
+            return
+
+        self.ensure_chips(interaction.user.id)
+        self.cursor.execute("SELECT COUNT(*) FROM poker_chips WHERE chips > ?", (self.get_chips(interaction.user.id),))
+        higher_count = self.cursor.fetchone()[0]
+        user_rank = higher_count + 1
+
+        medals = [
+            "<a:first:1479896994293219418>",
+            "<a:second:1479896996331524229>",
+            "<a:third:1480093491332780072>",
+        ]
+        lines = []
+        for index, (user_id, chips) in enumerate(leaders, start=1):
+            name = await fetch_display_name(self.bot, interaction.guild, user_id)
+            icon = medals[index - 1] if index <= 3 else "-"
+            lines.append(f"{icon} **{name}** - `{chips:,}` {CHIP_EMOJI}")
+
+        embed = discord.Embed(
+            title="<:pandatrophy:1479896789393084580> Chip Leaderboard",
+            description="\n".join(lines),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Your Rank: #{user_rank} | Your Balance: {self.get_chips(interaction.user.id):,} {CHIP_EMOJI}")
+        await interaction.response.send_message(embed=embed)
 
     @poker_group.command(name="create", description="Create a poker table")
     @app_commands.describe(table="Choose which table to open")
