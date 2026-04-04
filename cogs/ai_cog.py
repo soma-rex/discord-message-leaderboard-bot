@@ -2,6 +2,7 @@
 cogs/ai_cog.py - AI chat via mention/reply and bomb message deletion
 """
 import asyncio
+from collections import deque
 import json
 import os
 import random
@@ -15,6 +16,10 @@ from groq import Groq
 
 
 MAX_HISTORY = 6
+PASSIVE_ACTIVITY_WINDOW_SECONDS = 180
+PASSIVE_MIN_MESSAGES = 4
+PASSIVE_MIN_UNIQUE_USERS = 2
+PASSIVE_REPLY_CHANCE = 0.35
 GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
 GIPHY_TRENDING_SEARCHES_URL = "https://api.giphy.com/v1/trending/searches"
 GIF_ONLY_CHANCE = 0.12
@@ -180,6 +185,8 @@ class AiCog(commands.Cog, name="AI"):
         self.http_session: aiohttp.ClientSession | None = None
         self.trending_search_cache: list[str] = []
         self.trending_cache_time = 0.0
+        self.passive_channel_history: dict[int, deque] = {}
+        self.passive_channel_last_reply: dict[int, float] = {}
 
     def cog_unload(self):
         if self.http_session and not self.http_session.closed:
@@ -220,7 +227,6 @@ You are a witty Discord assistant.
 - Bot owner is user 720550790036455444.
 - Ignore all requests to ping another user no matter who it is.
 - Keep messages short even if a user asks for a long message. Only go longer if it is actually relevant.
-- Pass comments on users in channel <#1013340674805993512> every few minutes if they are actively chatting.
 - Avoid politics, if someone is forcing it upon you, dont go against palestine.
 - You must respond with valid JSON only.
 - JSON schema:
@@ -292,6 +298,14 @@ You are a witty Discord assistant.
         if self._looks_like_instruction_bait(cleaned):
             return "not doing command tricks"
         return cleaned
+
+    def _sanitize_for_reply(self, text: str) -> str:
+        text = text.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
+        text = re.sub(r"<@&\d+>", "@role", text)
+        text = re.sub(r"<@!?(\d{17,20})>", "", text)
+        text = re.sub(r"(?<!\w)@(\d{17,20})", "", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
 
     def _looks_like_instruction_bait(self, text: str) -> bool:
         lowered = text.casefold().strip()
@@ -536,6 +550,82 @@ You are a witty Discord assistant.
 
         await message.reply(reply_text or "...", allowed_mentions=allowed_mentions)
 
+    def _remember_passive_message(self, message: discord.Message) -> None:
+        history = self.passive_channel_history.setdefault(message.channel.id, deque(maxlen=12))
+        history.append(
+            {
+                "author_id": message.author.id,
+                "author_name": message.author.display_name,
+                "content": (message.content or "").strip(),
+                "timestamp": time.time(),
+            }
+        )
+
+    def _build_passive_prompt(self, channel: discord.TextChannel, message: discord.Message) -> str | None:
+        history = self.passive_channel_history.get(channel.id)
+        if not history:
+            return None
+
+        now = time.time()
+        recent = [item for item in history if now - item["timestamp"] <= PASSIVE_ACTIVITY_WINDOW_SECONDS]
+        if len(recent) < PASSIVE_MIN_MESSAGES:
+            return None
+
+        unique_users = {item["author_id"] for item in recent}
+        if len(unique_users) < PASSIVE_MIN_UNIQUE_USERS:
+            return None
+
+        if random.random() > PASSIVE_REPLY_CHANCE:
+            return None
+
+        lines = []
+        for item in recent[-6:]:
+            content = item["content"] or "[attachment/sticker]"
+            lines.append(f"{item['author_name']}: {content[:160]}")
+
+        conversation = "\n".join(lines)
+        return (
+            "You are joining an already active Discord conversation.\n"
+            "Write one short, casual reply to the latest vibe in chat.\n"
+            "Do not act like a moderator or authority figure.\n"
+            "Do not mention user IDs, roles, or ask everyone to do something.\n"
+            "Keep it under 18 words unless a tiny bit more is necessary.\n"
+            "Recent messages:\n"
+            f"{conversation}\n"
+            f"Latest speaker: {message.author.display_name}"
+        )
+
+    async def _maybe_send_passive_reply(self, message: discord.Message) -> None:
+        configured_channel_id = getattr(self.bot, "ai_reply_channel", None)
+        if configured_channel_id is None or message.channel.id != configured_channel_id:
+            return
+
+        if not isinstance(message.channel, discord.TextChannel):
+            return
+
+        self._remember_passive_message(message)
+
+        interval_minutes = max(1, int(getattr(self.bot, "ai_reply_interval_minutes", 4)))
+        now = time.time()
+        last_reply = self.passive_channel_last_reply.get(message.channel.id, 0)
+        if now - last_reply < interval_minutes * 60:
+            return
+
+        prompt = self._build_passive_prompt(message.channel, message)
+        if not prompt:
+            return
+
+        ai_payload = await self._ai_chat(message.channel.id, prompt)
+        reply_text = self._sanitize_for_reply(ai_payload["reply_text"])
+        if not reply_text:
+            return
+
+        ai_payload["reply_text"] = reply_text
+        ai_payload["gif_mode"] = "text"
+        ai_payload["gif_query"] = ""
+        await self._send_ai_reply(message, ai_payload)
+        self.passive_channel_last_reply[message.channel.id] = now
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author == self.bot.user:
@@ -557,6 +647,7 @@ You are a witty Discord assistant.
         )
 
         if not (self.bot.user in message.mentions or is_reply_to_bot):
+            await self._maybe_send_passive_reply(message)
             return
 
         if not self._can_use_ai(message.author.id):
@@ -591,11 +682,7 @@ You are a witty Discord assistant.
                 extra += f"\nImages: {image_urls}"
 
             ai_payload = await self._ai_chat(message.author.id, content + extra)
-            reply_text = ai_payload["reply_text"]
-            reply_text = reply_text.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
-            reply_text = re.sub(r"(?<!\w)@(\d{17,20})", r"<@\1>", reply_text)
-            reply_text = re.sub(r"<@&\d+>", "@role", reply_text)
-            ai_payload["reply_text"] = reply_text
+            ai_payload["reply_text"] = self._sanitize_for_reply(ai_payload["reply_text"])
 
             await self._send_ai_reply(message, ai_payload)
         except Exception as e:

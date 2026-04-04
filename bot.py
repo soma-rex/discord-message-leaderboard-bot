@@ -102,6 +102,33 @@ bot.conn = conn
 bot.cursor = cursor
 bot.groq_client = groq_client
 
+
+def build_moderation_permissions() -> discord.Permissions:
+    return discord.Permissions(
+        view_channel=True,
+        send_messages=True,
+        embed_links=True,
+        attach_files=True,
+        read_message_history=True,
+        add_reactions=True,
+        use_external_emojis=True,
+        manage_messages=True,
+        moderate_members=True,
+        kick_members=True,
+        ban_members=True,
+    )
+
+
+def build_invite_url(application_id: int | None) -> str | None:
+    if not application_id:
+        return None
+    return discord.utils.oauth_url(
+        application_id,
+        permissions=build_moderation_permissions(),
+        scopes=("bot", "applications.commands"),
+    )
+
+
 async def setup_hook():
     await bot.load_extension("cogs.help_cog")
     await bot.load_extension("cogs.poker")
@@ -143,6 +170,25 @@ async def on_ready():
     synced = await bot.tree.sync()
     print(f"Synced {len(synced)} commands")
     print(f"Bot ready: {bot.user}")
+    invite_url = build_invite_url(bot.application_id)
+    if invite_url:
+        print(f"Invite with moderation perms: {invite_url}")
+
+
+@bot.tree.command(name="invite", description="Get the bot invite link with moderation permissions")
+async def invite(interaction: discord.Interaction):
+    invite_url = build_invite_url(interaction.client.application_id)
+    if not invite_url:
+        await interaction.response.send_message(
+            "I couldn't build the invite link right now.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_message(
+        f"Use this link to invite me with moderation permissions:\n{invite_url}",
+        ephemeral=True,
+    )
 
 
 @bot.tree.error

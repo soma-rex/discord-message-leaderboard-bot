@@ -9,6 +9,7 @@ from discord.ext import commands
 
 
 DEFAULT_COOLDOWN = 10
+DEFAULT_AI_REPLY_INTERVAL_MINUTES = 4
 
 
 class ConfigCog(commands.Cog, name="Config"):
@@ -32,6 +33,10 @@ class ConfigCog(commands.Cog, name="Config"):
             bot.event_end_time      = None
         if not hasattr(bot, "last_message_time"):
             bot.last_message_time   = {}
+        if not hasattr(bot, "ai_reply_channel"):
+            bot.ai_reply_channel    = None
+        if not hasattr(bot, "ai_reply_interval_minutes"):
+            bot.ai_reply_interval_minutes = DEFAULT_AI_REPLY_INTERVAL_MINUTES
 
         self._load_settings()
 
@@ -62,11 +67,15 @@ class ConfigCog(commands.Cog, name="Config"):
         cv  = self._get("cooldown")
         eav = self._get("event_active", "0")
         eev = self._get("event_end_time")
+        arv = self._get("ai_reply_channel")
+        aiv = self._get("ai_reply_interval_minutes")
 
         bot.target_channel      = int(tv)  if tv  else None
         bot.leaderboard_channel = int(lv)  if lv  else None
         bot.cooldown            = int(cv)  if cv  else DEFAULT_COOLDOWN
         bot.event_active        = eav == "1"
+        bot.ai_reply_channel    = int(arv) if arv else None
+        bot.ai_reply_interval_minutes = int(aiv) if aiv else DEFAULT_AI_REPLY_INTERVAL_MINUTES
 
         try:
             bot.event_end_time = float(eev) if eev else None
@@ -112,6 +121,27 @@ class ConfigCog(commands.Cog, name="Config"):
         self.bot.cooldown = seconds
         self._set("cooldown", seconds)
         await interaction.response.send_message(f"Cooldown set to {seconds} seconds")
+
+    @config_group.command(name="ai_channel", description="Set the channel for passive AI replies")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_ai_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        self.bot.ai_reply_channel = channel.id
+        self._set("ai_reply_channel", channel.id)
+        await interaction.response.send_message(f"Passive AI replies will run in {channel.mention}")
+
+    @config_group.command(name="ai_interval", description="Set the minimum minutes between passive AI replies")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_ai_interval(self, interaction: discord.Interaction, minutes: app_commands.Range[int, 1, 60]):
+        self.bot.ai_reply_interval_minutes = minutes
+        self._set("ai_reply_interval_minutes", minutes)
+        await interaction.response.send_message(f"Passive AI reply interval set to {minutes} minute(s)")
+
+    @config_group.command(name="ai_off", description="Disable passive AI replies")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def disable_ai_channel(self, interaction: discord.Interaction):
+        self.bot.ai_reply_channel = None
+        self._del("ai_reply_channel")
+        await interaction.response.send_message("Passive AI replies are now disabled")
 
     # ─────────────────────────────────────────
     # /event  group
