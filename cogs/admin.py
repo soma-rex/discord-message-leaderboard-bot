@@ -66,6 +66,15 @@ class AdminCog(commands.Cog, name="Admin"):
         except discord.HTTPException:
             return None
 
+    @staticmethod
+    def _role_names(roles) -> set[str]:
+        names: set[str] = set()
+        for role in roles or []:
+            role_name = getattr(role, "name", None)
+            if role_name:
+                names.add(role_name)
+        return names
+
     admin_group = app_commands.Group(name="admin", description="Administrative commands")
 
     @admin_group.command(name="resetuser", description="Reset a user's messages")
@@ -166,6 +175,79 @@ class AdminCog(commands.Cog, name="Admin"):
             await interaction.followup.send(
                 f"No messages with {emoji} found in {channel.mention}.", ephemeral=True
             )
+
+    @admin_group.command(name="roleaudit", description="Show recent audit log role changes for a member")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def role_audit(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member | None = None,
+        limit: app_commands.Range[int, 1, 10] = 5,
+    ):
+        await interaction.response.defer(ephemeral=True)
+
+        target = user or interaction.guild.me
+        if target is None:
+            await interaction.followup.send("I couldn't find the target member in this server.", ephemeral=True)
+            return
+
+        findings: list[str] = []
+        scanned = 0
+
+        try:
+            async for entry in interaction.guild.audit_logs(limit=100, action=discord.AuditLogAction.member_role_update):
+                scanned += 1
+                entry_target = getattr(entry, "target", None)
+                if entry_target is None or getattr(entry_target, "id", None) != target.id:
+                    continue
+
+                before_names = self._role_names(getattr(entry.before, "roles", []))
+                after_names = self._role_names(getattr(entry.after, "roles", []))
+                added = sorted(after_names - before_names)
+                removed = sorted(before_names - after_names)
+
+                if not added and not removed:
+                    continue
+
+                actor = entry.user.mention if entry.user else "Unknown"
+                parts: list[str] = []
+                if added:
+                    parts.append(f"Added: {', '.join(added[:6])}")
+                if removed:
+                    parts.append(f"Removed: {', '.join(removed[:6])}")
+
+                findings.append(
+                    f"<t:{int(entry.created_at.timestamp())}:R> - {actor}\n" + "\n".join(parts)
+                )
+                if len(findings) >= limit:
+                    break
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I can't read audit logs. Give me the `View Audit Log` permission.",
+                ephemeral=True,
+            )
+            return
+        except discord.HTTPException:
+            await interaction.followup.send(
+                "Discord wouldn't give me the audit logs right now. Try again in a moment.",
+                ephemeral=True,
+            )
+            return
+
+        if not findings:
+            await interaction.followup.send(
+                f"No recent role-update audit entries found for {target.mention}. I scanned {scanned} role audit entries.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"Role Audit for {target}",
+            description="\n\n".join(findings),
+            color=discord.Color.orange(),
+        )
+        embed.set_footer(text=f"Showing up to {limit} matching entries")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="avatar", description="Show a user's server and global avatars")
     @app_commands.check(
