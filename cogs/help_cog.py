@@ -15,9 +15,9 @@ HELP_PAGES = {
         ),
         "fields": [
             ("Help", "`/help` `;help`", False),
-            ("Games", "`/daily` `/chips` `/leaderboard chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`", False),
+            ("Games", "`/daily` `/chips` `/leaderboard chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...` `/bet` `/roll`", False),
             ("Stats", "`/stats leaderboard` `/stats rank`", False),
-            ("Fun", "`/roast` `/recommend` `/lurking` `;bomb` `;roast` `;recommend`", False),
+            ("Fun", "`/roast` `/recommend` `/lurking` `/roll` `/bet` `/bethigh` `/betlow` `;bomb` `;roast` `;recommend` `;roll` `;bet`", False),
             ("Staff", "`/register` `/profile` `/weeklyprogress` `/staffprogress` `/sotm` `/staff break` `/staff endbreak`", False),
             ("Admin", "`/config ...` `/event ...` `/admin ...` `/findreaction` `/avatar` `/banner`", False),
         ],
@@ -31,6 +31,8 @@ HELP_PAGES = {
             ("Blackjack", "`/blackjack play <bet>`", False),
             ("Roulette", "`/roulette spin <bet_type> <bet>`\n`/roulette table`", False),
             ("Slots", "`/slots spin <bet>`\n`/slots paytable`", False),
+            ("Dice Betting", "`/bet <amount>` Choose high or low\n`/bethigh <amount>` Bet on rolling higher\n`/betlow <amount>` Bet on rolling lower\n`;bet` `;bethigh` `;betlow`", False),
+            ("Roll", "`/roll [number]` Roll 1 to number (max 100M)\n`;roll [number]`", False),
         ],
     },
     "stats": {
@@ -46,8 +48,9 @@ HELP_PAGES = {
         "title": "Help - Fun",
         "description": "Fun and utility commands.",
         "fields": [
-            ("Slash commands", "`/roast <user>`\n`/recommend <prompt>`\n`/lurking`", False),
-            ("Prefix commands", "`;roast <user>`\n`;recommend <prompt>`", False),
+            ("Slash commands", "`/roast <user>`\n`/recommend <prompt>`\n`/lurking`\n`/roll [number]`\n`/bet <amount>`\n`/bethigh <amount>`\n`/betlow <amount>`", False),
+            ("Prefix commands", "`;roast <user>`\n`;recommend <prompt>`\n`;roll [number]`\n`;bet <amount>`\n`;bethigh <amount>`\n`;betlow <amount>`", False),
+            ("Dice Betting", "Roll 2 dice vs the bot. Win by rolling higher (bethigh) or lower (betlow). Ties return your bet. Winners get 2x their bet!", False),
             ("Bomb system", "`;bomb <user>`\n`;bombset <user> <seconds>`\n`;defuse <user>`", False),
             ("Owner tools", "`;pingstorm <user>`\n`;eval <code>`", False),
         ],
@@ -80,7 +83,7 @@ HELP_PAGES = {
         "description": "Commands available with `;` or `&`.",
         "fields": [
             ("General", "`;help`", False),
-            ("Fun", "`;roast` `;recommend`", False),
+            ("Fun", "`;roast` `;recommend` `;roll` `;bet` `;bethigh` `;betlow`", False),
             ("Staff", "`;profile` `;enterbday` `;weeklyprogress` `;wp` `;staffprogress` `;sotm`", False),
             ("Bomb", "`;bomb` `;bombset` `;defuse`", False),
             ("Owner-only", "`;pingstorm` `;eval`", False),

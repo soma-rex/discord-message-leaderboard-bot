@@ -1,5 +1,5 @@
 """
-cogs/fun.py  –  Fun commands: bomb, roast, recommend, pingstorm, eval
+cogs/fun.py  –  Fun commands: bomb, roast, recommend, pingstorm, eval, roll, bet
 """
 import ast
 import asyncio
@@ -13,6 +13,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from groq import Groq
+
+from .chips import ChipsMixin, CHIP_EMOJI
 
 
 BOMB_REQUIRED_ROLE_ID = 996368478216929371
@@ -61,16 +63,57 @@ class LurkingView(discord.ui.View):
         emoji = random.choice(LURKING_RESPONSE_EMOJIS)
         await interaction.response.send_message(f"{interaction.user.mention} is lurking. {emoji}")
 
+
+class BetChoiceView(discord.ui.View):
+    def __init__(self, user_id: int, amount: int, cog):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.amount = amount
+        self.cog = cog
+
+    @discord.ui.button(label="🔺 High", style=discord.ButtonStyle.success)
+    async def bet_high(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your bet!", ephemeral=True)
+            return
+
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+
+        # Process the bet
+        await self.cog._process_bet(interaction, self.amount, "high")
+        self.stop()
+
+    @discord.ui.button(label="🔻 Low", style=discord.ButtonStyle.danger)
+    async def bet_low(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your bet!", ephemeral=True)
+            return
+
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+
+        # Process the bet
+        await self.cog._process_bet(interaction, self.amount, "low")
+        self.stop()
+
 # ─────────────────────────────────────────────
 # COG
 # ─────────────────────────────────────────────
-class FunCog(commands.Cog, name="Fun"):
+class FunCog(commands.Cog, ChipsMixin, name="Fun"):
     """Fun and trolling commands."""
 
     def __init__(self, bot: commands.Bot):
         self.bot         = bot
+        self.conn        = bot.conn
+        self.cursor      = bot.cursor
         self.groq_client: Groq = bot.groq_client
         self.bombed_users: dict = {}   # user_id -> end_time
+        self._ensure_chip_table()
 
     # ─ Internal AI helpers ──────────────────
     async def _generate_roast(self, username: str) -> str:
@@ -246,6 +289,149 @@ class FunCog(commands.Cog, name="Fun"):
             return
         await ctx.send(f"```py\n{result}\n```")
 
+    @commands.command(name="roll")
+    async def roll_cmd(self, ctx: commands.Context, number: int = 100):
+        """Roll a random number from 1 to the specified number (max 100 million)."""
+        if number < 1:
+            await ctx.send("The number must be at least 1.")
+            return
+        if number > 100_000_000:
+            await ctx.send("The maximum number you can roll is 100,000,000.")
+            return
+
+        result = random.randint(1, number)
+        embed = discord.Embed(
+            title="🎲 Roll",
+            description=f"Rolling 1-{number:,}",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Result", value=f"**{result:,}**", inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="bet")
+    async def bet_cmd(self, ctx: commands.Context, amount: int = None):
+        """Place a bet - you'll be asked to choose high or low."""
+        if amount is None:
+            await ctx.send("Usage: `;bet <amount>` - Then choose high or low!")
+            return
+
+        if amount <= 0:
+            await ctx.send("Bet must be at least 1 chip.")
+            return
+
+        balance = self.get_chips(ctx.author.id)
+        if balance < amount:
+            await ctx.send(f"Not enough chips! You have **{balance:,}** {CHIP_EMOJI} but need **{amount:,}**.")
+            return
+
+        # Create view with high/low buttons
+        view = BetChoiceView(ctx.author.id, amount, self)
+        embed = discord.Embed(
+            title="🎲 Choose Your Bet",
+            description=f"Bet: **{amount:,}** {CHIP_EMOJI}\n\nChoose whether you want to roll **HIGH** or **LOW**:",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="🔺 High", value="Win if you roll higher than the bot", inline=True)
+        embed.add_field(name="🔻 Low", value="Win if you roll lower than the bot", inline=True)
+        await ctx.send(embed=embed, view=view)
+
+    @commands.command(name="bethigh")
+    async def bet_high_cmd(self, ctx: commands.Context, amount: int):
+        """Bet on rolling higher than the bot."""
+        await self._process_bet(ctx, amount, "high")
+
+    @commands.command(name="betlow")
+    async def bet_low_cmd(self, ctx: commands.Context, amount: int):
+        """Bet on rolling lower than the bot."""
+        await self._process_bet(ctx, amount, "low")
+
+    async def _process_bet(self, ctx_or_interaction, amount: int, bet_type: str):
+        """Internal method to process betting logic."""
+        # Handle both context and interaction
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            user_id = ctx_or_interaction.user.id
+            user_name = ctx_or_interaction.user.display_name
+            is_interaction = True
+        else:
+            user_id = ctx_or_interaction.author.id
+            user_name = ctx_or_interaction.author.display_name
+            is_interaction = False
+
+        if amount <= 0:
+            msg = "Bet must be at least 1 chip."
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        balance = self.get_chips(user_id)
+        if balance < amount:
+            msg = f"Not enough chips! You have **{balance:,}** {CHIP_EMOJI} but need **{amount:,}**."
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        # Deduct chips
+        if not self.remove_chips(user_id, amount):
+            msg = "Failed to deduct chips. Please try again."
+            if is_interaction:
+                await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await ctx_or_interaction.send(msg)
+            return
+
+        # Roll dice (2 dice each)
+        user_roll = random.randint(1, 6) + random.randint(1, 6)
+        bot_roll = random.randint(1, 6) + random.randint(1, 6)
+
+        # Determine winner
+        if bet_type == "high":
+            won = user_roll > bot_roll
+            bet_desc = "🔺 Bet High (win if higher)"
+        else:  # low
+            won = user_roll < bot_roll
+            bet_desc = "🔻 Bet Low (win if lower)"
+
+        if won:
+            # Win: get back bet + winnings
+            winnings = amount * 2
+            self.add_chips(user_id, winnings)
+            net_gain = amount
+            title = f"🎉 You Win!"
+            color = discord.Color.green()
+            result_text = f"You won **{net_gain:,}** {CHIP_EMOJI}"
+        elif user_roll == bot_roll:
+            # Tie: return bet
+            self.add_chips(user_id, amount)
+            title = "🤝 Tie!"
+            color = discord.Color.light_grey()
+            result_text = f"Your bet of **{amount:,}** {CHIP_EMOJI} was returned"
+        else:
+            # Lose
+            title = f"💀 You Lose!"
+            color = discord.Color.red()
+            result_text = f"You lost **{amount:,}** {CHIP_EMOJI}"
+
+        new_balance = self.get_chips(user_id)
+
+        embed = discord.Embed(title=title, color=color, description=result_text)
+        embed.add_field(name="Your Bet", value=bet_desc, inline=False)
+        embed.add_field(name="🎲 Your Roll", value=f"**{user_roll}**", inline=True)
+        embed.add_field(name="🎲 Bot Roll", value=f"**{bot_roll}**", inline=True)
+        embed.add_field(name=f"{CHIP_EMOJI} New Balance", value=f"**{new_balance:,}**", inline=False)
+        embed.set_footer(text=f"@{user_name}")
+
+        if is_interaction:
+            if ctx_or_interaction.response.is_done():
+                await ctx_or_interaction.followup.send(embed=embed)
+            else:
+                await ctx_or_interaction.response.send_message(embed=embed)
+        else:
+            await ctx_or_interaction.send(embed=embed)
+
     # ─────────────────────────────────────────
     # SLASH COMMANDS
     # ─────────────────────────────────────────
@@ -278,6 +464,65 @@ class FunCog(commands.Cog, name="Fun"):
         view = LurkingView()
         await interaction.response.send_message("Whos lurking?", view=view)
         view.message = await interaction.original_response()
+
+    @app_commands.command(name="roll", description="Roll a random number")
+    @app_commands.describe(number="Maximum number to roll (1 to 100 million, default 100)")
+    async def roll_slash(self, interaction: discord.Interaction, number: int = 100):
+        """Roll a random number from 1 to the specified number."""
+        if number < 1:
+            await interaction.response.send_message("The number must be at least 1.", ephemeral=True)
+            return
+        if number > 100_000_000:
+            await interaction.response.send_message("The maximum number you can roll is 100,000,000.", ephemeral=True)
+            return
+
+        result = random.randint(1, number)
+        embed = discord.Embed(
+            title="🎲 Roll",
+            description=f"Rolling 1-{number:,}",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Result", value=f"**{result:,}**", inline=False)
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="bet", description="Bet chips on a dice game - choose high or low")
+    @app_commands.describe(amount="Amount of chips to bet")
+    async def bet_slash(self, interaction: discord.Interaction, amount: int):
+        """Place a bet - you'll be asked to choose high or low."""
+        if amount <= 0:
+            await interaction.response.send_message("Bet must be at least 1 chip.", ephemeral=True)
+            return
+
+        balance = self.get_chips(interaction.user.id)
+        if balance < amount:
+            await interaction.response.send_message(
+                f"Not enough chips! You have **{balance:,}** {CHIP_EMOJI} but need **{amount:,}**.",
+                ephemeral=True
+            )
+            return
+
+        # Create view with high/low buttons
+        view = BetChoiceView(interaction.user.id, amount, self)
+        embed = discord.Embed(
+            title="🎲 Choose Your Bet",
+            description=f"Bet: **{amount:,}** {CHIP_EMOJI}\n\nChoose whether you want to roll **HIGH** or **LOW**:",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="🔺 High", value="Win if you roll higher than the bot", inline=True)
+        embed.add_field(name="🔻 Low", value="Win if you roll lower than the bot", inline=True)
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="bethigh", description="Bet on rolling higher than the bot")
+    @app_commands.describe(amount="Amount of chips to bet")
+    async def bethigh_slash(self, interaction: discord.Interaction, amount: int):
+        """Bet on rolling higher than the bot."""
+        await self._process_bet(interaction, amount, "high")
+
+    @app_commands.command(name="betlow", description="Bet on rolling lower than the bot")
+    @app_commands.describe(amount="Amount of chips to bet")
+    async def betlow_slash(self, interaction: discord.Interaction, amount: int):
+        """Bet on rolling lower than the bot."""
+        await self._process_bet(interaction, amount, "low")
 
 
 async def setup(bot: commands.Bot):
