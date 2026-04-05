@@ -281,8 +281,8 @@ class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        buy_in_raw = str(self.buy_in).strip()
-        raise_cap_raw = str(self.raise_cap).strip()
+        buy_in_raw = self.buy_in.value.strip()
+        raise_cap_raw = self.raise_cap.value.strip()
         if not buy_in_raw.isdigit() or not raise_cap_raw.isdigit():
             await interaction.response.send_message("Buy-in and raise cap must be whole numbers.", ephemeral=True)
             return
@@ -320,7 +320,7 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
             await interaction.response.send_message(error, ephemeral=True)
             return
 
-        raw_amount = str(self.raise_amount).strip()
+        raw_amount = self.raise_amount.value.strip()
         if not raw_amount.isdigit():
             await interaction.response.send_message("Raise amount must be a whole number.", ephemeral=True)
             return
@@ -935,16 +935,20 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         game["action_message"] = message
 
     async def _cash_out_round_players(self, channel: discord.TextChannel, game: dict) -> None:
+        """Cash out players who are busted (stack = 0) or leaving after this hand."""
         refunds = []
         for user_id in list(game["seating_order"]):
             player = game["players"].get(user_id)
             if not player:
                 continue
-            refund = player["stack"]
-            if refund > 0:
-                self.add_chips(user_id, refund)
-            refunds.append((user_id, refund))
-            self._remove_player_from_table(game, user_id)
+
+            # Only cash out if player is busted OR marked as leaving
+            if player["stack"] <= 0 or player.get("leaving_after_hand"):
+                refund = player["stack"]
+                if refund > 0:
+                    self.add_chips(user_id, refund)
+                    refunds.append((user_id, refund))
+                self._remove_player_from_table(game, user_id)
 
         if refunds:
             lines = [f"<@{user_id}> cashed out **{amount}** {CHIP_EMOJI}" for user_id, amount in refunds]
