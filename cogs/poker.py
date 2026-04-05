@@ -1,5 +1,4 @@
-﻿
-import asyncio
+﻿import asyncio
 import random
 import time
 from collections import Counter
@@ -10,7 +9,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from .chips import ChipsMixin
-
 
 CHIP_EMOJI = "<:poker_chip:1487837444685430896>"
 SPADE_EMOJI = "<:spade:1487837442907050197>"
@@ -263,6 +261,7 @@ def build_players_embed(game: dict) -> discord.Embed:
     embed.description = "\n".join(lines) if lines else "No one is seated."
     return embed
 
+
 class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
     buy_in = discord.ui.TextInput(
         label="Buy-in",
@@ -355,12 +354,14 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
         player["acted"] = True
 
         for user_id, other in game["players"].items():
-            if user_id != interaction.user.id and other["in_current_hand"] and not other["folded"] and not other["all_in"]:
+            if user_id != interaction.user.id and other["in_current_hand"] and not other["folded"] and not other[
+                "all_in"]:
                 other["acted"] = False
 
         self.view._advance_turn_index(game)
         await interaction.response.send_message(f"Raised by **{raise_by}** to **{target}**.", ephemeral=True)
-        await self.view._announce_action(interaction.channel, interaction.user, f"raised by **{raise_by}** to **{target}**.")
+        await self.view._announce_action(interaction.channel, interaction.user,
+                                         f"raised by **{raise_by}** to **{target}**.")
         await self.view.resolve_turn(interaction.channel)
 
 
@@ -691,7 +692,12 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         self.poker_games: dict[int, dict] = {}
         self.conn = bot.conn
         self.cursor = bot.cursor
-        self._ensure_chip_table()
+        # Ensure database table exists on initialization
+        try:
+            self._ensure_chip_table()
+        except Exception as e:
+            print(f"Error initializing poker chip table: {e}")
+            raise
 
     def cog_unload(self):
         for game in self.poker_games.values():
@@ -749,16 +755,40 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             await interaction.response.send_message("No poker table exists here.", ephemeral=True)
             return
 
+        # Ensure user has chip record before proceeding
+        try:
+            self.ensure_chips(interaction.user.id)
+        except Exception as e:
+            await interaction.response.send_message(
+                f"Error accessing chip balance. Please try again. Error: {str(e)}",
+                ephemeral=True
+            )
+            return
+
         player = game["players"].get(interaction.user.id)
         if player and player["stack"] > 0:
             await interaction.response.send_message("You're already seated with chips at this table.", ephemeral=True)
             return
 
         buy_in = game["buy_in"]
-        if not self.remove_chips(interaction.user.id, buy_in):
-            await interaction.response.send_message(f"You need **{buy_in}** {CHIP_EMOJI} to buy in.", ephemeral=True)
+        current_chips = self.get_chips(interaction.user.id)
+
+        if current_chips < buy_in:
+            await interaction.response.send_message(
+                f"You need **{buy_in}** {CHIP_EMOJI} to buy in. You have **{current_chips}** {CHIP_EMOJI}.",
+                ephemeral=True
+            )
             return
 
+        # Remove chips with explicit check
+        if not self.remove_chips(interaction.user.id, buy_in):
+            await interaction.response.send_message(
+                f"Failed to deduct chips. You need **{buy_in}** {CHIP_EMOJI} to buy in.",
+                ephemeral=True
+            )
+            return
+
+        # Add player to game
         if player:
             player["stack"] += buy_in
             player["leaving_after_hand"] = False
@@ -783,6 +813,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             view=PokerTableView(interaction.channel.id, self),
         )
 
+        # Queue next hand if conditions are met
         if game["started"] and not game["hand_active"] and len(eligible_table_players(game)) >= 2:
             await self._queue_next_hand(interaction.channel.id, delay=HAND_START_DELAY_SECONDS)
 
@@ -1036,13 +1067,13 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         )
 
     async def _open_table(
-        self,
-        interaction: discord.Interaction,
-        *,
-        table_key: str,
-        table_name: str,
-        buy_in: int,
-        raise_cap: int | None,
+            self,
+            interaction: discord.Interaction,
+            *,
+            table_key: str,
+            table_name: str,
+            buy_in: int,
+            raise_cap: int | None,
     ):
         channel_id = interaction.channel.id
         if channel_id in self.poker_games:
@@ -1122,10 +1153,22 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         game["hand_active"] = True
         game["phase"] = "preflop"
         game["deck"] = build_deck()
+
+        # Ensure we have enough cards
+        if len(game["deck"]) < 5:
+            await channel.send("Error: Not enough cards in deck. Please restart the table.")
+            game["hand_active"] = False
+            return
+
         game["community"] = [game["deck"].pop() for _ in range(5)]
 
-        if game["seating_order"]:
-            game["dealer_index"] = (game["dealer_index"] + 1) % len(game["seating_order"])
+        # Validate seating order exists
+        if not game["seating_order"]:
+            await channel.send("Error: No players in seating order. Please restart the table.")
+            game["hand_active"] = False
+            return
+
+        game["dealer_index"] = (game["dealer_index"] + 1) % len(game["seating_order"])
 
         ordered = []
         if game["seating_order"]:
@@ -1135,11 +1178,22 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 if user_id in eligible:
                     ordered.append(user_id)
 
+        # Ensure we have valid player order
+        if len(ordered) < 2:
+            await channel.send("Error: Not enough eligible players. Canceling hand start.")
+            game["hand_active"] = False
+            return
+
         game["player_order"] = ordered
         game["turn_index"] = 0
 
         for user_id in game["player_order"]:
             player = game["players"][user_id]
+            # Ensure enough cards for each player
+            if len(game["deck"]) < 2:
+                await channel.send("Error: Not enough cards left in deck.")
+                game["hand_active"] = False
+                return
             player["cards"] = [game["deck"].pop(), game["deck"].pop()]
             player["folded"] = False
             player["bet"] = 0
