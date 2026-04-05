@@ -1,5 +1,5 @@
 ﻿"""
-cogs/ai_cog.py - Improved AI chat (less annoying, more useful, more human)
+cogs/ai_cog.py - AI chat restricted to a selected channel
 """
 
 import asyncio
@@ -12,28 +12,23 @@ import time
 
 import aiohttp
 import discord
+from discord import app_commands
 from discord.ext import commands
 from groq import Groq
 
 
 # ─────────────────────────────────────────
-# SETTINGS (TUNED)
+# SETTINGS
 # ─────────────────────────────────────────
-MAX_HISTORY = 4  # increased for better context
+MAX_HISTORY = 4
 MAX_OUTPUT_TOKENS = 100
 
-PASSIVE_ACTIVITY_WINDOW_SECONDS = 180
-PASSIVE_MIN_MESSAGES = 6
-PASSIVE_MIN_UNIQUE_USERS = 3
-PASSIVE_REPLY_CHANCE = 0.08  # reduced spam
-
-CHANNEL_COOLDOWN = 20  # seconds between bot replies per channel
+CHANNEL_COOLDOWN = 3  # seconds between bot replies per channel
 
 OWNER_USER_ID = 720550790036455444
 GIPHY_SEARCH_URL = "https://api.giphy.com/v1/gifs/search"
 
 GLOBAL_TOKEN_LIMIT_PER_HOUR = 80000
-PASSIVE_REPLY_ENABLED = True
 
 
 # ─────────────────────────────────────────
@@ -58,13 +53,6 @@ def extract_emojis(text: str) -> list:
     return emoji_pattern.findall(text)
 
 
-def is_worth_replying(content: str) -> bool:
-    if not content:
-        return False
-    keywords = ["?", "why", "how", "what", "help", "bro", "wtf"]
-    return any(k in content.lower() for k in keywords)
-
-
 class AiCog(commands.Cog, name="AI"):
 
     def __init__(self, bot: commands.Bot):
@@ -77,8 +65,8 @@ class AiCog(commands.Cog, name="AI"):
         self.ai_cooldown = {}
         self.channel_cooldown = {}
 
-        self.passive_channel_history = {}
-        self.passive_channel_last_reply = {}
+        # Store the allowed channel ID per guild
+        self.allowed_channels = {}  # {guild_id: channel_id}
 
         self.giphy_api_key = os.getenv("GIPHY_API_KEY")
         self.http_session = None
@@ -98,27 +86,23 @@ class AiCog(commands.Cog, name="AI"):
             self.global_token_usage = 0
             self.token_reset_time = time.time()
 
-    def _can_use_ai(self, user_id: int, channel_id: int, is_direct: bool) -> bool:
+    def _can_use_ai(self, user_id: int, channel_id: int) -> bool:
         now = time.time()
 
-        # user cooldown (always applies)
+        # User cooldown
         if user_id in self.ai_cooldown and now - self.ai_cooldown[user_id] < 3:
             return False
 
-        # ❗ ONLY apply channel cooldown for passive replies
-        if not is_direct:
-            if channel_id in self.channel_cooldown and now - self.channel_cooldown[channel_id] < CHANNEL_COOLDOWN:
-                return False
+        # Channel cooldown
+        if channel_id in self.channel_cooldown and now - self.channel_cooldown[channel_id] < CHANNEL_COOLDOWN:
+            return False
 
         self._reset_token_counter_if_needed()
         if self.global_token_usage > GLOBAL_TOKEN_LIMIT_PER_HOUR:
             return False
 
         self.ai_cooldown[user_id] = now
-
-        # only set channel cooldown for passive replies
-        if not is_direct:
-            self.channel_cooldown[channel_id] = now
+        self.channel_cooldown[channel_id] = now
 
         return True
 
@@ -217,57 +201,25 @@ class AiCog(commands.Cog, name="AI"):
         return random.choice(data["data"])["images"]["original"]["url"]
 
     # ─────────────────────────────────────────
-    # PASSIVE CHAT
+    # COMMAND: SET AI CHANNEL (Admin only)
     # ─────────────────────────────────────────
-    def _remember(self, message):
-        hist = self.passive_channel_history.setdefault(message.channel.id, deque(maxlen=12))
-        hist.append({
-            "author": message.author.display_name,
-            "content": message.content,
-            "time": time.time()
-        })
-
-    def _build_prompt(self, channel_id):
-        hist = self.passive_channel_history.get(channel_id)
-        if not hist:
-            return None
-
-        recent = [h for h in hist if time.time() - h["time"] < PASSIVE_ACTIVITY_WINDOW_SECONDS]
-
-        if len(recent) < PASSIVE_MIN_MESSAGES:
-            return None
-
-        if len(set(h["author"] for h in recent)) < PASSIVE_MIN_UNIQUE_USERS:
-            return None
-
-        if random.random() > PASSIVE_REPLY_CHANCE:
-            return None
-
-        convo = "\n".join(f"{h['author']}: {h['content']}" for h in recent[-6:])
-        return f"Join this convo naturally:\n{convo}"
-
-    async def _maybe_reply(self, message):
-        configured_channel_id = getattr(self.bot, "ai_reply_channel", None)
-
-        if configured_channel_id is None or message.channel.id != configured_channel_id:
+    @app_commands.command(name="ai_channel", description="Set the AI chat channel (Admin only)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_ai_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        """Set which channel the AI can respond in."""
+        if not interaction.guild:
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
             return
 
-        if not PASSIVE_REPLY_ENABLED:
-            return
+        self.allowed_channels[interaction.guild.id] = channel.id
 
-        self._remember(message)
-
-        prompt = self._build_prompt(message.channel.id)
-        if not prompt:
-            return
-
-        if not is_worth_replying(message.content):
-            return
-
-
-
-        ai = await self._ai_chat(message.channel.id, prompt)
-        await message.reply(self._sanitize(ai["reply_text"]))
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="AI Channel Set",
+                description=f"AI will now only respond in {channel.mention}",
+                color=discord.Color.green()
+            )
+        )
 
     # ─────────────────────────────────────────
     # COMMAND: MODE
@@ -297,6 +249,17 @@ class AiCog(commands.Cog, name="AI"):
                 await message.reply(gif)
             return
 
+        # Check if message is in the allowed channel
+        if message.guild:
+            allowed_channel_id = self.allowed_channels.get(message.guild.id)
+            if allowed_channel_id is None:
+                # No channel set, AI won't respond anywhere
+                return
+            if message.channel.id != allowed_channel_id:
+                # Message is not in the allowed channel
+                return
+
+        # Check if bot was mentioned or replied to
         is_reply = (
             message.reference and
             message.reference.resolved and
@@ -304,12 +267,10 @@ class AiCog(commands.Cog, name="AI"):
         )
 
         if not (self.bot.user in message.mentions or is_reply):
-            await self._maybe_reply(message)
+            # Only respond when mentioned or replied to
             return
 
-        is_direct = (self.bot.user in message.mentions or is_reply)
-
-        if not self._can_use_ai(message.author.id, message.channel.id, is_direct):
+        if not self._can_use_ai(message.author.id, message.channel.id):
             return
 
         content = message.content or ""
