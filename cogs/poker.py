@@ -678,7 +678,21 @@ class PokerBetView(discord.ui.View):
         await self.cog.leave_table(interaction)
 
 
-# ... (rest of the code remains the same - RaiseModal, PokerTableView, and PokerCog) ...
+class PokerTableView(discord.ui.View):
+    """View shown while the poker table is open (waiting room / between hands)."""
+
+    def __init__(self, channel_id: int, cog: "PokerCog"):
+        super().__init__(timeout=600)
+        self.channel_id = channel_id
+        self.cog = cog
+
+    @discord.ui.button(label="Buy In", style=discord.ButtonStyle.success, row=0)
+    async def buy_in(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.buy_in_player(interaction)
+
+    @discord.ui.button(label="Leave Table", style=discord.ButtonStyle.secondary, row=0)
+    async def leave_table(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.leave_table(interaction)
 
 
 class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
@@ -970,6 +984,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             return
         if game.get("pending_start_task"):
             return
+        print(f"[Poker] Queuing next hand in channel {channel_id} (delay={delay}s)")
         game["next_hand_starts_at"] = time.time() + delay
 
         channel = await self._get_channel(channel_id)
@@ -1113,6 +1128,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         }
         game["inactivity_task"] = asyncio.create_task(self._monitor_inactivity(channel_id))
         self.poker_games[channel_id] = game
+        print(f"[Poker] Table '{table_name}' created in channel {channel_id} by user {interaction.user.id}")
 
         await interaction.response.send_message(embed=build_waiting_embed(game), view=PokerTableView(channel_id, self))
 
@@ -1121,6 +1137,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if not game or game["ending"] or not game["started"] or game["hand_active"]:
             return
 
+        print(f"[Poker] Starting next hand in channel {channel_id}")
         channel = await self._get_channel(channel_id)
         if channel is None:
             return
@@ -1232,6 +1249,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
 
     async def finish_hand(self, channel: discord.TextChannel, game: dict, *, showdown: bool = True) -> None:
         self._touch_game(game)
+        print(f"[Poker] Finishing hand #{game['hand_number']} in channel {channel.id} (showdown={showdown})")
         if showdown:
             game["visible_community"] = game["community"][:]
             pots = build_side_pots(game)
