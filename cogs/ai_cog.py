@@ -247,6 +247,11 @@ class AiCog(commands.Cog, name="AI"):
         return f"Join this convo naturally:\n{convo}"
 
     async def _maybe_reply(self, message):
+        configured_channel_id = getattr(self.bot, "ai_reply_channel", None)
+
+        if configured_channel_id is None or message.channel.id != configured_channel_id:
+            return
+
         if not PASSIVE_REPLY_ENABLED:
             return
 
@@ -258,6 +263,8 @@ class AiCog(commands.Cog, name="AI"):
 
         if not is_worth_replying(message.content):
             return
+
+
 
         ai = await self._ai_chat(message.channel.id, prompt)
         await message.reply(self._sanitize(ai["reply_text"]))
