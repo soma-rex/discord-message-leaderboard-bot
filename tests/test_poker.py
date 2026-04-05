@@ -128,7 +128,6 @@ class TestOpenTable(unittest.IsolatedAsyncioTestCase):
         interaction.response.send_message.assert_awaited_once()
         call_kwargs = interaction.response.send_message.call_args
         # The view argument must be a PokerTableView instance
-        view_arg = call_kwargs.kwargs.get("view") or (call_kwargs.args[0] if call_kwargs.args else None)
         view_arg = call_kwargs.kwargs.get("view")
         self.assertIsInstance(view_arg, PokerTableView)
 
