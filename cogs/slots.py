@@ -20,6 +20,7 @@ SLOT_GRAPES = "<<:slot_grapes:1491348607931252736>"
 
 WIN_EMOJI = "<a:check:1479904904205041694>"
 LOSE_EMOJI = "<a:cross:1479904917702578306>"
+MONEYBAG_EMOJI = "<:money_bag:1491430729832202363>"
 
 SYMBOLS = [
     (SLOT_DIAMOND, 1, 50),
@@ -145,7 +146,7 @@ class SlotsView(discord.ui.View):
         else:
             await interaction.edit_original_response(embed=embed)
 
-    @discord.ui.button(label="Cash Out", style=discord.ButtonStyle.red, emoji="💰")
+    @discord.ui.button(label="Cash Out", style=discord.ButtonStyle.red, emoji=MONEYBAG_EMOJI)
     async def cashout_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle cash out button click."""
         # Only allow the original user to cash out
@@ -158,7 +159,7 @@ class SlotsView(discord.ui.View):
 
         balance = self.cog.get_chips(self.user_id)
         embed = discord.Embed(
-            title=f"💰 Cashed Out!",
+            title=f"{MONEYBAG_EMOJI} Cashed Out!",
             description=f"You walked away with **{balance:,}** {CHIP_EMOJI} after **{self.spins}** spins.",
             color=discord.Color.gold()
         )

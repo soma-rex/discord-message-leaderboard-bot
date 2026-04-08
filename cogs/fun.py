@@ -18,6 +18,8 @@ from .chips import ChipsMixin, CHIP_EMOJI
 
 
 BOMB_REQUIRED_ROLE_ID = 996368478216929371
+MONEYBAG_EMOJI = "<:money_bag:1491430729832202363>"
+DICE_EMOJI = "<:dice:1491430727643037838>"
 APRIL_FOOLS_IMAGE_URL = "https://imgs.search.brave.com/CBANpKTCDW5yWUTMPcNueFI4zyQixIt-tyRbRxbBMHM/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly90aHVt/YnMuZHJlYW1zdGlt/ZS5jb20vYi9zdC1h/cHJpbC1mb29scy1k/YXktdGV4dC1iYW5u/ZXItY29sb3JmdWwt/cGxhc3RpY2luZS1s/ZXR0ZXJpbmctdy1j/b25mZXR0aS1wYXJ0/eS1ibG93ZXItY2xv/d24tbm9zZS1zb2xp/ZC1icmlnaHQtb3Jh/bmdlLWJhY2tncm91/bmQtMTA5NTUyODUx/LmpwZw"
 LURKING_RESPONSE_EMOJIS = [
     "<a:cutelurk2:1488518162923393155>",
@@ -301,7 +303,7 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
         result = random.randint(1, number)
         embed = discord.Embed(
-            title="🎲 Roll",
+            title=f"{DICE_EMOJI} Roll",
             description=f"Rolling 1-{number:,}",
             color=discord.Color.blue()
         )
@@ -327,12 +329,12 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
         # Create view with high/low buttons
         view = BetChoiceView(ctx.author.id, amount, self)
         embed = discord.Embed(
-            title="🎲 Choose Your Bet",
+            title=f"{DICE_EMOJI} Choose Your Bet",
             description=f"Bet: **{amount:,}** {CHIP_EMOJI}\n\nChoose whether you want to roll **HIGH** or **LOW**:",
             color=discord.Color.gold()
         )
-        embed.add_field(name="🔺 High", value="Win if you roll higher than the bot", inline=True)
-        embed.add_field(name="🔻 Low", value="Win if you roll lower than the bot", inline=True)
+        embed.add_field(name="High", value="Win if you roll higher than the bot", inline=True)
+        embed.add_field(name="Low", value="Win if you roll lower than the bot", inline=True)
         await ctx.send(embed=embed, view=view)
 
     @commands.command(name="bethigh")
@@ -390,10 +392,10 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
         # Determine winner
         if bet_type == "high":
             won = user_roll > bot_roll
-            bet_desc = "🔺 Bet High (win if higher)"
+            bet_desc = "Bet High (win if higher)"
         else:  # low
             won = user_roll < bot_roll
-            bet_desc = "🔻 Bet Low (win if lower)"
+            bet_desc = "Bet Low (win if lower)"
 
         if won:
             # Win: get back bet + winnings
@@ -419,9 +421,9 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
         embed = discord.Embed(title=title, color=color, description=result_text)
         embed.add_field(name="Your Bet", value=bet_desc, inline=False)
-        embed.add_field(name="🎲 Your Roll", value=f"**{user_roll}**", inline=True)
-        embed.add_field(name="🎲 Bot Roll", value=f"**{bot_roll}**", inline=True)
-        embed.add_field(name=f"{CHIP_EMOJI} New Balance", value=f"**{new_balance:,}**", inline=False)
+        embed.add_field(name=f"{DICE_EMOJI} Your Roll", value=f"**{user_roll}**", inline=True)
+        embed.add_field(name=f"{DICE_EMOJI} Bot Roll", value=f"**{bot_roll}**", inline=True)
+        embed.add_field(name=f"{MONEYBAG_EMOJI} New Balance", value=f"**{new_balance:,}**", inline=False)
         embed.set_footer(text=f"@{user_name}")
 
         if is_interaction:
@@ -478,7 +480,7 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
         result = random.randint(1, number)
         embed = discord.Embed(
-            title="🎲 Roll",
+            title=f"{DICE_EMOJI} Roll",
             description=f"Rolling 1-{number:,}",
             color=discord.Color.blue()
         )
@@ -504,12 +506,12 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
         # Create view with high/low buttons
         view = BetChoiceView(interaction.user.id, amount, self)
         embed = discord.Embed(
-            title="🎲 Choose Your Bet",
+            title=f"{DICE_EMOJI} Choose Your Bet",
             description=f"Bet: **{amount:,}** {CHIP_EMOJI}\n\nChoose whether you want to roll **HIGH** or **LOW**:",
             color=discord.Color.gold()
         )
-        embed.add_field(name="🔺 High", value="Win if you roll higher than the bot", inline=True)
-        embed.add_field(name="🔻 Low", value="Win if you roll lower than the bot", inline=True)
+        embed.add_field(name="High", value="Win if you roll higher than the bot", inline=True)
+        embed.add_field(name="Low", value="Win if you roll lower than the bot", inline=True)
         await interaction.response.send_message(embed=embed, view=view)
 
     @app_commands.command(name="bethigh", description="Bet on rolling higher than the bot")
