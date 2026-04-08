@@ -1140,9 +1140,9 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         )
         game["action_message"] = message
 
-    async def _cash_out_round_players(self, channel: discord.TextChannel, game: dict) -> None:
+    async def _cash_out_round_players(self, channel: discord.TextChannel, game: dict) -> bool:
         """Cash out players who are busted (stack = 0) or leaving after this hand."""
-        refunds = []
+        departures = []
         for user_id in list(game["seating_order"]):
             player = game["players"].get(user_id)
             if not player:
@@ -1151,13 +1151,15 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             # Only cash out if player is busted OR marked as leaving
             if player["stack"] <= 0 or player.get("leaving_after_hand"):
                 refund = player["stack"]
+                reason = "left the table" if player.get("leaving_after_hand") else "was eliminated"
                 if refund > 0 and user_id != BOT_PLAYER_ID:
                     self.add_chips(user_id, refund)
-                    refunds.append((user_id, refund))
+                    reason = f"cashed out **{refund}** {CHIP_EMOJI}"
+                departures.append((user_id, reason))
                 self._remove_player_from_table(game, user_id)
 
-        if refunds:
-            lines = [f"{player_label(user_id)} cashed out **{amount}** {CHIP_EMOJI}" for user_id, amount in refunds]
+        if departures:
+            lines = [f"{player_label(user_id)} {reason}." for user_id, reason in departures]
             lines.append("Buy in again with `/poker join` or the Buy In button to play the next round.")
             await channel.send(
                 embed=discord.Embed(
@@ -1167,6 +1169,9 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 ),
                 view=PokerTableView(channel.id, self),
             )
+            return True
+
+        return False
 
     async def _queue_next_hand(self, channel_id: int, delay: int = HAND_START_DELAY_SECONDS) -> None:
         game = self.poker_games.get(channel_id)
@@ -1576,9 +1581,24 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
 
         await self._disable_action_view(game)
         self._reset_hand_state(game)
-        await self._cash_out_round_players(channel, game)
+        changed_table = await self._cash_out_round_players(channel, game)
         await self._finalize_pending_leaves(channel, game)
-        await self._queue_next_hand(channel.id)
+        eligible_count = len(eligible_table_players(game))
+        if eligible_count >= 2:
+            await self._queue_next_hand(channel.id)
+        elif changed_table or game["started"]:
+            waiting_text = "One more player needs to buy in before the next round can start."
+            if eligible_count == 0:
+                waiting_text = "At least 2 players need to buy in before the next round can start."
+            await channel.send(
+                embed=discord.Embed(
+                    title="Waiting for players",
+                    description=waiting_text,
+                    color=discord.Color.orange(),
+                ),
+                view=PokerTableView(channel.id, self),
+            )
+            await channel.send(embed=build_waiting_embed(game), view=PokerTableView(channel.id, self))
 
     async def leave_table(self, interaction: discord.Interaction) -> None:
         game = self.poker_games.get(interaction.channel.id)
