@@ -1115,23 +1115,13 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             await self._handle_bot_turn(channel, game)
             return
 
-        current_message = game.get("action_message")
+        await self._disable_action_view(game)
         view = PokerBetView(
             channel.id,
             self,
             hand_number=game["hand_number"],
             expected_user_id=mention_user_id,
         )
-        if current_message is not None:
-            try:
-                await current_message.edit(
-                    content=f"{DICE_EMOJI} {player_label(mention_user_id)}",
-                    embed=build_game_embed(game),
-                    view=view,
-                )
-                return
-            except Exception:
-                game["action_message"] = None
 
         message = await channel.send(
             f"{DICE_EMOJI} {player_label(mention_user_id)}",
