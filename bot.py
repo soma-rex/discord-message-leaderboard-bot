@@ -165,6 +165,13 @@ def get_token() -> str:
 @bot.event
 async def on_ready():
     synced = await bot.tree.sync()
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.playing,
+            name="dealing cards at the high table",
+        ),
+        status=discord.Status.online,
+    )
     print(f"Synced {len(synced)} commands")
     print(f"Bot ready: {bot.user}")
     invite_url = build_invite_url(bot.application_id)
