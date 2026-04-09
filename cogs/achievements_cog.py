@@ -135,8 +135,9 @@ class AchievementsCog(commands.Cog, EconomyMixin, name="Achievements"):
 
         if chips:
             self.add_wallet(user_id, chips)
+        new_levels = []
         if xp:
-            self.add_xp(user_id, xp)
+            new_levels = self.add_xp(user_id, xp)
         if title:
             self.unlock_title(user_id, title)
 
@@ -161,6 +162,12 @@ class AchievementsCog(commands.Cog, EconomyMixin, name="Achievements"):
             await channel.send(embed=embed)
         except discord.HTTPException:
             pass
+
+        if new_levels:
+            level_cog = self.bot.cogs.get("Leveling")
+            if level_cog:
+                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                await level_cog.notify_level_ups(user, new_levels)
 
     async def _fire_quest_update(self, user_id: int, quest_type: str, amount: int):
         """Minimal quest increment without circular import."""

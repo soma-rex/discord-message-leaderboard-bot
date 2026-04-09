@@ -1630,37 +1630,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             if len(eligible_table_players(game)) < 2:
                 self._cancel_pending_start(game)
 
-    @app_commands.command(name="daily", description="Claim your daily poker chips")
-    async def daily(self, interaction: discord.Interaction):
-        self.ensure_chips(interaction.user.id)
-        self.cursor.execute("SELECT last_daily FROM poker_chips WHERE user_id = ?", (interaction.user.id,))
-        last_daily = self.cursor.fetchone()[0]
-        now = int(time.time())
-
-        if now - last_daily < 86400:
-            remaining = 86400 - (now - last_daily)
-            hours, minutes = remaining // 3600, (remaining % 3600) // 60
-            await interaction.response.send_message(
-                embed=discord.Embed(
-                    title="Daily not ready",
-                    description=f"Come back in **{hours}h {minutes}m**.",
-                    color=discord.Color.orange(),
-                ),
-                ephemeral=True,
-            )
-            return
-
-        reward = random.randint(300, 700)
-        self.add_chips(interaction.user.id, reward)
-        self.cursor.execute("UPDATE poker_chips SET last_daily = ? WHERE user_id = ?", (now, interaction.user.id))
-        self.conn.commit()
-
-        total = self.get_chips(interaction.user.id)
-        embed = discord.Embed(title="Daily reward claimed!", color=discord.Color.green())
-        embed.add_field(name="Reward", value=f"**+{reward}** {CHIP_EMOJI}", inline=True)
-        embed.add_field(name="Balance", value=f"**{total}** {CHIP_EMOJI}", inline=True)
-        await interaction.response.send_message(embed=embed)
-
     @app_commands.command(name="chips", description="Check your chip balance")
     async def poker_chips(self, interaction: discord.Interaction):
         chips = self.get_chips(interaction.user.id)

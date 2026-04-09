@@ -79,18 +79,9 @@ class GamblingBridge(commands.Cog, EconomyMixin, name="GamblingBridge"):
             # Balance check
             await ach_cog.check_balance_achievements(channel, uid)
 
-        # Level up notifications
-        if new_levels and channel:
-            for lvl in new_levels:
-                try:
-                    embed = discord.Embed(
-                        title=f"{LEVEL_EMOJI} Level Up!",
-                        description=f"{user.mention} reached **Level {lvl}**! +{xp_gain} {XP_EMOJI}",
-                        color=discord.Color.gold(),
-                    )
-                    await channel.send(embed=embed)
-                except discord.HTTPException:
-                    pass
+        level_cog = self.bot.cogs.get("Leveling")
+        if level_cog:
+            await level_cog.notify_level_ups(user, new_levels)
 
         # Jackpot fanfare
         if jackpot and channel:

@@ -263,10 +263,10 @@ class QuestsCog(commands.Cog, EconomyMixin, name="Quests"):
             claimed_names.append(f"✅ {quest_def.get('name', quest_id)}")
         embed.add_field(name="Quests", value="\n".join(claimed_names), inline=False)
 
-        if new_levels:
-            embed.add_field(name=f"{LEVEL_EMOJI} Level Up!", value=f"You reached level **{new_levels[-1]}**!", inline=False)
-
         await interaction.response.send_message(embed=embed)
+        level_cog = self.bot.cogs.get("Leveling")
+        if level_cog:
+            await level_cog.notify_level_ups(interaction.user, new_levels)
 
     # ─────────────────────────────────────────
     # PUBLIC API — other cogs call this

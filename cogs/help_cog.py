@@ -19,7 +19,7 @@ HELP_PAGES = {
             ("Leveling","`/level rank` `/level leaderboard` `/level rewards`", False),
             ("Quests",  "`/quests daily` `/quests weekly` `/quests claim`", False),
             ("Achievements", "`/achievements list` `/achievements showcase` `/achievements leaderboard`", False),
-            ("Games",   "`/daily` `/chips` `/leaderboard chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...` `/bet` `/roll`", False),
+            ("Games",   "`/chips` `/leaderboard chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...` `/bet` `/roll`", False),
             ("Stats",   "`/stats leaderboard` `/stats rank`", False),
             ("Fun",     "`/roast` `/recommend` `/lurking` `/roll` `/bet` `;bomb` `;roast`", False),
             ("AI",      "`/ai channel` `/ai personality` `/ai memory` `/ai forget` `/ai status` `;mode`", False),
@@ -51,9 +51,9 @@ HELP_PAGES = {
     },
     "leveling": {
         "title": "Help - Leveling System",
-        "description": "Gain XP by using the bot and level up for rewards.",
+        "description": "Gain XP through grind commands, quests, and achievements.",
         "fields": [
-            ("XP Sources", "Chatting (+5 XP), Gambling (+8-15 XP), Working (+50 XP), Crime (+80 XP), Completing quests, Claiming daily (+100 XP)", False),
+            ("XP Sources", "Gambling (+8-15 XP), Working (+50 XP), Crime (+80 XP), Claiming daily (+100 XP), Weekly rewards (+500 XP), Completing quests, and achievement rewards", False),
             ("Commands", "`/level rank` — Your XP, level, and progress\n`/level leaderboard` — Top XP earners\n`/level rewards` — All milestone rewards", False),
             ("Prestige", "Reach level 50 and use a Prestige Token to reset and gain a prestige rank. Max prestige: 5.", False),
             ("Milestone Rewards", "Level 5: Rookie title\nLevel 10: +1000 chips + Lucky Charm\nLevel 20: Veteran title\nLevel 30: High Roller title + Vault Key\nAnd much more...", False),
@@ -81,7 +81,7 @@ HELP_PAGES = {
         "title": "Help - Games",
         "description": "Casino commands and chip economy.",
         "fields": [
-            ("Shared economy", "`/daily` Claim your shared daily chips\n`/chips` Check your chip balance\n`/leaderboard chips` View the top balances", False),
+            ("Shared economy", "`/eco daily` Claim your shared daily chips\n`/chips` Check your chip balance\n`/leaderboard chips` View the top balances", False),
             ("Poker",      "`/poker create` Open a table\n`/poker join` Buy in or rebuy\n`/poker start` Start the endless table\n`/poker end` End the table and refund stacks", False),
             ("Blackjack",  "`/blackjack play <bet>`", False),
             ("Roulette",   "`/roulette spin <bet_type> <bet>`\n`/roulette table`", False),

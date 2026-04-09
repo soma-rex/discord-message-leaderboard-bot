@@ -114,6 +114,13 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         self.cursor = bot.cursor
         self._ensure_economy_tables()
 
+    async def _notify_level_ups(self, user: discord.abc.User, new_levels: list[int]):
+        if not new_levels:
+            return
+        cog = self.bot.cogs.get("Leveling")
+        if cog:
+            await cog.notify_level_ups(user, new_levels)
+
     # ─────────────────────────────────────────
     # BALANCE
     # ─────────────────────────────────────────
@@ -177,6 +184,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
             color=discord.Color.green(),
         )
         await interaction.response.send_message(embed=embed)
+        await self._update_quest_progress(uid, "deposit", 1)
 
     @eco_group.command(name="withdraw", description="Withdraw chips from your bank")
     @app_commands.describe(amount="Amount to withdraw, or 'all'")
@@ -296,11 +304,12 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         embed.add_field(name=f"{STREAK_EMOJI} Streak", value=f"**{streak}** days", inline=True)
         embed.add_field(name="Streak Bonus", value=f"+**{bonus}** {CHIP_EMOJI}", inline=True)
         embed.add_field(name="XP Earned",    value=f"+**100** {XP_EMOJI}", inline=True)
-        if new_levels:
-            embed.add_field(name=f"{LEVEL_EMOJI} Level Up!", value=f"You reached level **{new_levels[-1]}**!", inline=False)
         if streak >= 7:
             embed.set_footer(text=f"🔥 {streak}-day streak! Keep it going!")
         await interaction.response.send_message(embed=embed)
+        await self._notify_level_ups(interaction.user, new_levels)
+        await self._update_quest_progress(uid, "daily", 1)
+        await self._update_quest_progress(uid, "earn", reward)
         # Check achievements
         await self._check_streak_achievements(interaction, uid, streak)
 
@@ -341,9 +350,8 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
             description=f"You earned {fmt_chips(reward)} + **500** {XP_EMOJI}!",
             color=discord.Color.gold(),
         )
-        if new_levels:
-            embed.add_field(name=f"{LEVEL_EMOJI} Level Up!", value=f"You reached level **{new_levels[-1]}**!", inline=False)
         await interaction.response.send_message(embed=embed)
+        await self._notify_level_ups(interaction.user, new_levels)
 
     # ─────────────────────────────────────────
     # WORK
@@ -382,10 +390,10 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         )
         if boost > 1.0:
             embed.set_footer(text=f"💫 Work boost active! ({boost:.1f}x)")
-        if new_levels:
-            embed.add_field(name=f"{LEVEL_EMOJI} Level Up!", value=f"Level **{new_levels[-1]}**!", inline=False)
         await interaction.response.send_message(embed=embed)
+        await self._notify_level_ups(interaction.user, new_levels)
         await self._update_quest_progress(uid, "work", 1)
+        await self._update_quest_progress(uid, "earn", earned)
 
     # ─────────────────────────────────────────
     # CRIME
@@ -444,9 +452,11 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
                     description=f"You **{act}** and got caught! Fined {fmt_chips(actual_fine)}.",
                     color=discord.Color.red(),
                 )
-        if 'new_levels' in locals() and new_levels:
-            embed.add_field(name=f"{LEVEL_EMOJI} Level Up!", value=f"Level **{new_levels[-1]}**!", inline=False)
         await interaction.response.send_message(embed=embed)
+        await self._notify_level_ups(interaction.user, new_levels if 'new_levels' in locals() else [])
+        await self._update_quest_progress(uid, "crime", 1)
+        if success:
+            await self._update_quest_progress(uid, "earn", earned)
 
     # ─────────────────────────────────────────
     # BEG
@@ -516,9 +526,8 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
             description=f"**{item['description']}**\nCost: **{item['price']:,}** {CHIP_EMOJI}\nBalance: {fmt_chips(self.get_wallet(uid))}",
             color=discord.Color.green(),
         )
-        if new_levels:
-            embed.add_field(name=f"{LEVEL_EMOJI} Level Up!", value=f"Level **{new_levels[-1]}**!", inline=False)
         await interaction.response.send_message(embed=embed)
+        await self._notify_level_ups(interaction.user, new_levels)
         await self._update_quest_progress(uid, "buy_item", 1)
 
     @shop_group.command(name="use", description="Use an item from your inventory")

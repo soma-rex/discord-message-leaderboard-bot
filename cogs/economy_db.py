@@ -219,6 +219,13 @@ class EconomyMixin:
             )
         """)
 
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id    INTEGER PRIMARY KEY,
+                levelup_dm INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
         # Inventory
         c.execute("""
             CREATE TABLE IF NOT EXISTS inventory (
@@ -293,6 +300,10 @@ class EconomyMixin:
         )
         self.cursor.execute(
             "INSERT OR IGNORE INTO xp_levels (user_id) VALUES (?)",
+            (user_id,)
+        )
+        self.cursor.execute(
+            "INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)",
             (user_id,)
         )
         self.conn.commit()
@@ -393,6 +404,8 @@ class EconomyMixin:
             (xp, level, user_id)
         )
         self.conn.commit()
+        for new_level in leveled_up:
+            self._grant_level_rewards(user_id, new_level)
         return leveled_up
 
     # ─── EFFECTS HELPERS ────────────────────────────────
@@ -502,6 +515,36 @@ class EconomyMixin:
             (json.dumps(titles), user_id)
         )
         self.conn.commit()
+
+    def get_levelup_dm_enabled(self, user_id: int) -> bool:
+        self.eco_ensure(user_id)
+        self.cursor.execute(
+            "SELECT levelup_dm FROM user_preferences WHERE user_id = ?",
+            (user_id,)
+        )
+        row = self.cursor.fetchone()
+        return bool(row[0]) if row else False
+
+    def set_levelup_dm_enabled(self, user_id: int, enabled: bool):
+        self.eco_ensure(user_id)
+        self.cursor.execute(
+            "UPDATE user_preferences SET levelup_dm = ? WHERE user_id = ?",
+            (1 if enabled else 0, user_id)
+        )
+        self.conn.commit()
+
+    def _grant_level_rewards(self, user_id: int, level: int):
+        reward = LEVEL_REWARDS.get(level)
+        if not reward:
+            return
+
+        chips, item_key, title = reward
+        if chips:
+            self.add_wallet(user_id, chips)
+        if item_key:
+            self.add_item(user_id, item_key)
+        if title:
+            self.unlock_title(user_id, title)
 
     def set_active_title(self, user_id: int, title: str) -> bool:
         import json
