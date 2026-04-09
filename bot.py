@@ -24,9 +24,6 @@ if not api_key:
 
 groq_client = Groq(api_key=api_key)
 
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio() > 0.6
 
@@ -59,9 +56,6 @@ def extract_emojis(text):
     )
     return emoji_pattern.findall(text)
 
-# ─────────────────────────────────────────────
-# DATABASE
-# ─────────────────────────────────────────────
 DB_PATH = "messages.db"
 TOKEN_ENV_VARS = ("DISCORD_TOKEN", "BOT_TOKEN")
 DEFAULT_COOLDOWN = 10
@@ -83,9 +77,6 @@ cursor.execute("""
 """)
 conn.commit()
 
-# ─────────────────────────────────────────────
-# BOT SETUP
-# ─────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -97,7 +88,6 @@ bot = commands.Bot(
 )
 bot.help_command = None
 
-# Expose DB and groq on bot so cogs can access them
 bot.conn = conn
 bot.cursor = cursor
 bot.groq_client = groq_client
@@ -130,6 +120,7 @@ def build_invite_url(application_id: int | None) -> str | None:
 
 
 async def setup_hook():
+    # Original cogs
     await bot.load_extension("cogs.help_cog")
     await bot.load_extension("cogs.poker")
     await bot.load_extension("cogs.blackjack")
@@ -143,6 +134,12 @@ async def setup_hook():
     await bot.load_extension("cogs.admin")
     await bot.load_extension("cogs.ai_cog")
     await bot.load_extension("cogs.staff_logger")
+    # New progression cogs
+    await bot.load_extension("cogs.economy_cog")
+    await bot.load_extension("cogs.leveling_cog")
+    await bot.load_extension("cogs.achievements_cog")
+    await bot.load_extension("cogs.quests_cog")
+    await bot.load_extension("cogs.gambling_bridge")
 
 bot.setup_hook = setup_hook
 
@@ -184,7 +181,6 @@ async def invite(interaction: discord.Interaction):
             ephemeral=True,
         )
         return
-
     await interaction.response.send_message(
         f"Use this link to invite me with moderation permissions:\n{invite_url}",
         ephemeral=True,
