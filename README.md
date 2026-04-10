@@ -24,6 +24,7 @@ Pulse currently includes:
 * A basic economy system with balances and rewards
 * User statistics tracking using a database
 * AI-powered responses using an external API, with optional GIPHY reactions
+* A symbolic calculator for algebra, equations, differentiation, integration, domains, and LaTeX previews
 * Admin and configuration commands for server management
 * Custom help command system
 
@@ -96,6 +97,8 @@ Examples of usage include:
 
 * Starting games like poker or blackjack
 * Checking balances or stats
+* Solving equations like `/calc solve x^2 - 5*x + 6 = 0`
+* Running calculus commands like `/calc diff x^3 + sin(x)` or `/calc integrate x^2`
 * Using AI-related commands
 * Accessing the help command for a full list of features
 

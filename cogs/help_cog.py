@@ -13,7 +13,17 @@ HELP_PAGES = {
         "fields": [
             ("Core", "`/eco ...` `/shop ...` `/level ...` `/quests ...` `/achievements ...`"),
             ("Games", "`/chips` `/leaderboard chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`"),
+            ("Tools", "`/calc eval` `/calc simplify` `/calc diff` `/calc integrate` `/calc solve` `/calc latex`"),
             ("Other", "`/stats ...` `/ai ...` `/register` `/profile ...` `/admin ...`"),
+        ],
+    },
+    "calculator": {
+        "title": "Help - Calculator",
+        "description": "Advanced symbolic math with CodeCogs LaTeX previews.",
+        "fields": [
+            ("Compute", "`/calc eval` `/calc simplify` `/calc domain`"),
+            ("Calculus", "`/calc diff` `/calc integrate`"),
+            ("Equation Tools", "`/calc solve` `/calc latex`"),
         ],
     },
     "economy": {
@@ -104,6 +114,7 @@ HELP_PAGES = {
 
 SELECT_OPTIONS = [
     ("overview", "Overview", "Quick command map"),
+    ("calculator", "Calculator", "Advanced symbolic math"),
     ("economy", "Economy", "Wallet, bank, and grinding"),
     ("shop", "Shop", "Items and inventory"),
     ("leveling", "Leveling", "XP, ranks, and notifications"),

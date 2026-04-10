@@ -127,6 +127,7 @@ async def setup_hook():
     await bot.load_extension("cogs.roulette")
     await bot.load_extension("cogs.slots")
     await bot.load_extension("cogs.fun")
+    await bot.load_extension("cogs.calculator")
     await bot.load_extension("cogs.anime_guess")
     await bot.load_extension("cogs.rumble")
     await bot.load_extension("cogs.stats")
