@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
+import html
+import re
 import sqlite3
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -137,7 +141,10 @@ class ProfileEditView(discord.ui.View):
         await self.message.edit(content=self._content(), embed=embed, view=self)
 
     async def apply_change(self, interaction: discord.Interaction, field_name: str, raw_value: str) -> str | None:
-        error, update_text = self.cog._apply_profile_edit_value(interaction.user.id, field_name, raw_value)
+        if field_name == "profile_image_url":
+            error, update_text = await self.cog._apply_profile_image_edit(interaction.user.id, raw_value)
+        else:
+            error, update_text = self.cog._apply_profile_edit_value(interaction.user.id, field_name, raw_value)
         if error:
             return error
 
@@ -233,12 +240,15 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         self.conn: sqlite3.Connection = bot.conn
         self.cursor: sqlite3.Cursor = bot.cursor
         self.mod_message_cooldowns: dict[int, datetime] = {}
+        self.http_session: aiohttp.ClientSession | None = None
         self._ensure_tables()
         self._ensure_active_week()
         self.weekly_reset_loop.start()
 
     def cog_unload(self):
         self.weekly_reset_loop.cancel()
+        if self.http_session and not self.http_session.closed:
+            asyncio.create_task(self.http_session.close())
 
     def _ensure_tables(self):
         self.cursor.execute(
@@ -622,6 +632,68 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
                 "ending in `.png`, `.jpg`, `.webp`, or `.gif`."
             )
         return cleaned, None
+
+    async def _get_http_session(self) -> aiohttp.ClientSession:
+        if self.http_session is None or self.http_session.closed:
+            timeout = aiohttp.ClientTimeout(total=10)
+            headers = {"User-Agent": "PulseDiscordBot/1.0"}
+            self.http_session = aiohttp.ClientSession(timeout=timeout, headers=headers)
+        return self.http_session
+
+    @staticmethod
+    def _extract_meta_image_url(page_text: str) -> str | None:
+        meta_patterns = (
+            r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+            r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image(?::src)?["\']',
+        )
+        for pattern in meta_patterns:
+            match = re.search(pattern, page_text, flags=re.IGNORECASE)
+            if match:
+                return html.unescape(match.group(1).strip())
+        return None
+
+    async def _resolve_gif_page_url(self, page_url: str) -> str | None:
+        session = await self._get_http_session()
+        try:
+            async with session.get(page_url, allow_redirects=True) as response:
+                if response.status >= 400:
+                    return None
+                page_text = await response.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError, UnicodeDecodeError):
+            return None
+
+        media_match = re.search(
+            r'https://(?:media\.tenor\.com|c\.tenor\.com|media\.giphy\.com|i\.giphy\.com)/[^"\'>\s]+\.(?:gif|png|jpe?g|webp)',
+            page_text,
+            flags=re.IGNORECASE,
+        )
+        if media_match:
+            return html.unescape(media_match.group(0))
+
+        meta_image = self._extract_meta_image_url(page_text)
+        if meta_image and self._looks_like_direct_image_url(meta_image):
+            return meta_image
+        return None
+
+    async def _apply_profile_image_edit(self, user_id: int, raw_value: str) -> tuple[str | None, str]:
+        cleaned_value = (raw_value or "").strip()
+        normalized_url, notice = self._normalize_profile_image_url(cleaned_value)
+        if cleaned_value and normalized_url is None and notice:
+            return notice, ""
+
+        resolved_notice = notice
+        if normalized_url and self._is_supported_gif_page_url(normalized_url):
+            resolved_url = await self._resolve_gif_page_url(normalized_url)
+            if resolved_url:
+                normalized_url = resolved_url
+                resolved_notice = "Resolved that GIF page to a direct media URL for your profile banner."
+
+        self._set_profile_field(user_id, "profile_image_url", normalized_url)
+        if normalized_url:
+            return None, resolved_notice or "Updated your profile banner/GIF."
+        return None, "Cleared your profile banner/GIF."
 
     @staticmethod
     def _profile_title_text(member: discord.Member, custom_title: str | None) -> str:
