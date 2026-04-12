@@ -20,39 +20,39 @@ def fmt_chips(n: int) -> str:
 # ─────────────────────────────────────────────
 ACHIEVEMENTS: dict[str, dict] = {
     # Economy
-    "first_earn":      {"name": "First Blood",        "emoji": "💰", "desc": "Earn your first chips", "goal": 1,     "type": "earn",      "reward_chips": 50,   "reward_xp": 50,   "reward_title": None},
-    "earn_10k":        {"name": "Ten Grand",           "emoji": "💵", "desc": "Earn 10,000 chips total", "goal": 10000, "type": "earn_total","reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
-    "earn_100k":       {"name": "Hundred-K Club",      "emoji": "💎", "desc": "Earn 100,000 chips total","goal": 100000,"type": "earn_total","reward_chips": 2000, "reward_xp": 500,  "reward_title": "Mogul"},
-    "earn_1m":         {"name": "Millionaire",         "emoji": "🤑", "desc": "Earn 1,000,000 chips total","goal":1000000,"type":"earn_total","reward_chips":10000,"reward_xp":2000, "reward_title": "Millionaire"},
-    "daily_7":         {"name": "Week Warrior",        "emoji": "🔥", "desc": "Claim daily 7 days in a row","goal":7,"type":"daily_streak","reward_chips": 700,  "reward_xp": 300,  "reward_title": None},
-    "daily_30":        {"name": "Month Master",        "emoji": "📅", "desc": "30-day daily streak",    "goal": 30,    "type": "daily_streak","reward_chips": 3000,"reward_xp": 1000, "reward_title": "Dedicated"},
-    "work_10":         {"name": "Grinder",             "emoji": "⚒️", "desc": "Work 10 times",           "goal": 10,    "type": "work",      "reward_chips": 300,  "reward_xp": 150,  "reward_title": None},
-    "work_100":        {"name": "Workaholic",          "emoji": "🏭", "desc": "Work 100 times",          "goal": 100,   "type": "work",      "reward_chips": 2000, "reward_xp": 500,  "reward_title": "Workaholic"},
-    "crime_10":        {"name": "Criminal",            "emoji": "🦹", "desc": "Commit 10 crimes",        "goal": 10,    "type": "crime",     "reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
-    "crime_50":        {"name": "Kingpin",             "emoji": "👑", "desc": "Commit 50 crimes",        "goal": 50,    "type": "crime",     "reward_chips": 3000, "reward_xp": 800,  "reward_title": "Kingpin"},
+    "first_earn":      {"name": "First Blood",        "emoji": "<:coin_bag:1492795892699234364>", "desc": "Earn your first chips", "goal": 1,     "type": "earn",      "reward_chips": 50,   "reward_xp": 50,   "reward_title": None},
+    "earn_10k":        {"name": "Ten Grand",           "emoji": "<:coin_bag:1492795892699234364>", "desc": "Earn 10,000 chips total", "goal": 10000, "type": "earn_total","reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
+    "earn_100k":       {"name": "Hundred-K Club",      "emoji": "<:coin_bag:1492795892699234364>", "desc": "Earn 100,000 chips total","goal": 100000,"type": "earn_total","reward_chips": 2000, "reward_xp": 500,  "reward_title": "Mogul"},
+    "earn_1m":         {"name": "Millionaire",         "emoji": "<:money_face:1492795921728274442>", "desc": "Earn 1,000,000 chips total","goal":1000000,"type":"earn_total","reward_chips":10000,"reward_xp":2000, "reward_title": "Millionaire"},
+    "daily_7":         {"name": "Week Warrior",        "emoji": "<:streak_flame:1492795940774613064>", "desc": "Claim daily 7 days in a row","goal":7,"type":"daily_streak","reward_chips": 700,  "reward_xp": 300,  "reward_title": None},
+    "daily_30":        {"name": "Month Master",        "emoji": "<:calendar_check:1492795882012414093>", "desc": "30-day daily streak",    "goal": 30,    "type": "daily_streak","reward_chips": 3000,"reward_xp": 1000, "reward_title": "Dedicated"},
+    "work_10":         {"name": "Grinder",             "emoji": "<:work_hammer:1492795945832677396>", "desc": "Work 10 times",           "goal": 10,    "type": "work",      "reward_chips": 300,  "reward_xp": 150,  "reward_title": None},
+    "work_100":        {"name": "Workaholic",          "emoji": "<:factory_pixel:1492795902941991056>", "desc": "Work 100 times",          "goal": 100,   "type": "work",      "reward_chips": 2000, "reward_xp": 500,  "reward_title": "Workaholic"},
+    "crime_10":        {"name": "Criminal",            "emoji": "<:lock_pixel:1492795919828123648>", "desc": "Commit 10 crimes",        "goal": 10,    "type": "crime",     "reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
+    "crime_50":        {"name": "Kingpin",             "emoji": "<:crown:1492795898877710459>", "desc": "Commit 50 crimes",        "goal": 50,    "type": "crime",     "reward_chips": 3000, "reward_xp": 800,  "reward_title": "Kingpin"},
     # Gambling
-    "first_gamble":    {"name": "Roll the Dice",       "emoji": "🎲", "desc": "Gamble for the first time","goal": 1,    "type": "gamble",    "reward_chips": 100,  "reward_xp": 50,   "reward_title": None},
-    "gamble_10":       {"name": "Risk Taker",          "emoji": "🃏", "desc": "Gamble 10 times",         "goal": 10,    "type": "gamble",    "reward_chips": 300,  "reward_xp": 150,  "reward_title": None},
-    "gamble_100":      {"name": "Casino Regular",      "emoji": "🎰", "desc": "Gamble 100 times",        "goal": 100,   "type": "gamble",    "reward_chips": 1500, "reward_xp": 500,  "reward_title": "Casino Regular"},
-    "gamble_500":      {"name": "High Roller",         "emoji": "🏆", "desc": "Gamble 500 times",        "goal": 500,   "type": "gamble",    "reward_chips": 5000, "reward_xp": 1500, "reward_title": "High Roller"},
-    "win_10":          {"name": "Lucky Streak",        "emoji": "🍀", "desc": "Win 10 gamble games",     "goal": 10,    "type": "gamble_win","reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
-    "win_100":         {"name": "Unbeatable",          "emoji": "⚡", "desc": "Win 100 gamble games",    "goal": 100,   "type": "gamble_win","reward_chips": 3000, "reward_xp": 800,  "reward_title": "Unbeatable"},
-    "bj_win_10":       {"name": "Card Shark",          "emoji": "🂡", "desc": "Win 10 blackjack games",  "goal": 10,    "type": "bj_win",    "reward_chips": 400,  "reward_xp": 150,  "reward_title": None},
-    "slots_jackpot":   {"name": "Jackpot!",            "emoji": "🎰", "desc": "Hit a 3-of-a-kind in slots","goal":1,    "type": "slots_jackpot","reward_chips": 1000,"reward_xp": 500, "reward_title": "Jackpot"},
+    "first_gamble":    {"name": "Roll the Dice",       "emoji": "<:dice:1491430727643037838>", "desc": "Gamble for the first time","goal": 1,    "type": "gamble",    "reward_chips": 100,  "reward_xp": 50,   "reward_title": None},
+    "gamble_10":       {"name": "Risk Taker",          "emoji": "<:card_joker:1492795884407361627>", "desc": "Gamble 10 times",         "goal": 10,    "type": "gamble",    "reward_chips": 300,  "reward_xp": 150,  "reward_title": None},
+    "gamble_100":      {"name": "Casino Regular",      "emoji": "<:slots_machine:1492795937154666558>", "desc": "Gamble 100 times",        "goal": 100,   "type": "gamble",    "reward_chips": 1500, "reward_xp": 500,  "reward_title": "Casino Regular"},
+    "gamble_500":      {"name": "High Roller",         "emoji": "<:achievement_trophy:1492795876375269466>", "desc": "Gamble 500 times",        "goal": 500,   "type": "gamble",    "reward_chips": 5000, "reward_xp": 1500, "reward_title": "High Roller"},
+    "win_10":          {"name": "Lucky Streak",        "emoji": "<:clover_pixel:1492795890094837881>", "desc": "Win 10 gamble games",     "goal": 10,    "type": "gamble_win","reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
+    "win_100":         {"name": "Unbeatable",          "emoji": "<:lightning_pixel:1492795917760466975>", "desc": "Win 100 gamble games",    "goal": 100,   "type": "gamble_win","reward_chips": 3000, "reward_xp": 800,  "reward_title": "Unbeatable"},
+    "bj_win_10":       {"name": "Card Shark",          "emoji": "<:ace_card:1492795873871007754>", "desc": "Win 10 blackjack games",  "goal": 10,    "type": "bj_win",    "reward_chips": 400,  "reward_xp": 150,  "reward_title": None},
+    "slots_jackpot":   {"name": "Jackpot!",            "emoji": "<:slots_machine:1492795937154666558>", "desc": "Hit a 3-of-a-kind in slots","goal":1,    "type": "slots_jackpot","reward_chips": 1000,"reward_xp": 500, "reward_title": "Jackpot"},
     # Leveling
-    "level_10":        {"name": "Rising Star",         "emoji": "⭐", "desc": "Reach level 10",          "goal": 10,    "type": "level",     "reward_chips": 500,  "reward_xp": 0,    "reward_title": None},
-    "level_25":        {"name": "Veteran",             "emoji": "🌟", "desc": "Reach level 25",          "goal": 25,    "type": "level",     "reward_chips": 2000, "reward_xp": 0,    "reward_title": None},
-    "level_50":        {"name": "Legend",              "emoji": "💫", "desc": "Reach level 50",          "goal": 50,    "type": "level",     "reward_chips": 8000, "reward_xp": 0,    "reward_title": "Legend"},
-    "prestige_1":      {"name": "Transcended",         "emoji": "💎", "desc": "Prestige once",           "goal": 1,     "type": "prestige",  "reward_chips": 10000,"reward_xp": 0,    "reward_title": "The Prestige"},
+    "level_10":        {"name": "Rising Star",         "emoji": "<:star_glow:1492795938711011539>", "desc": "Reach level 10",          "goal": 10,    "type": "level",     "reward_chips": 500,  "reward_xp": 0,    "reward_title": None},
+    "level_25":        {"name": "Veteran",             "emoji": "<:star_glow:1492795938711011539>", "desc": "Reach level 25",          "goal": 25,    "type": "level",     "reward_chips": 2000, "reward_xp": 0,    "reward_title": None},
+    "level_50":        {"name": "Legend",              "emoji": "<:comet_pixel:1492795894763094166>", "desc": "Reach level 50",          "goal": 50,    "type": "level",     "reward_chips": 8000, "reward_xp": 0,    "reward_title": "Legend"},
+    "prestige_1":      {"name": "Transcended",         "emoji": "<:prestige_gem:1492795925654011904>", "desc": "Prestige once",           "goal": 1,     "type": "prestige",  "reward_chips": 10000,"reward_xp": 0,    "reward_title": "The Prestige"},
     # Shop
-    "first_buy":       {"name": "Shopper",             "emoji": "🛒", "desc": "Buy your first item",     "goal": 1,     "type": "buy_item",  "reward_chips": 100,  "reward_xp": 50,   "reward_title": None},
-    "buy_10":          {"name": "Shopaholic",          "emoji": "🛍️", "desc": "Buy 10 items",            "goal": 10,    "type": "buy_item",  "reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
+    "first_buy":       {"name": "Shopper",             "emoji": "<:shop_tag:1492795932671213609>", "desc": "Buy your first item",     "goal": 1,     "type": "buy_item",  "reward_chips": 100,  "reward_xp": 50,   "reward_title": None},
+    "buy_10":          {"name": "Shopaholic",          "emoji": "<:shopping_bags:1492795934571102249>", "desc": "Buy 10 items",            "goal": 10,    "type": "buy_item",  "reward_chips": 500,  "reward_xp": 200,  "reward_title": None},
     # Quests
-    "complete_quest":  {"name": "On a Mission",        "emoji": "📜", "desc": "Complete your first quest","goal": 1,    "type": "quest",     "reward_chips": 200,  "reward_xp": 100,  "reward_title": None},
-    "complete_10_quests":{"name":"Quest Hero",         "emoji": "📖", "desc": "Complete 10 quests",      "goal": 10,    "type": "quest",     "reward_chips": 1000, "reward_xp": 400,  "reward_title": "Quest Hero"},
+    "complete_quest":  {"name": "On a Mission",        "emoji": "<:quest_scroll:1492795927524544614>", "desc": "Complete your first quest","goal": 1,    "type": "quest",     "reward_chips": 200,  "reward_xp": 100,  "reward_title": None},
+    "complete_10_quests":{"name":"Quest Hero",         "emoji": "<:open_book:1492795923787677716>", "desc": "Complete 10 quests",      "goal": 10,    "type": "quest",     "reward_chips": 1000, "reward_xp": 400,  "reward_title": "Quest Hero"},
     # Wealth
-    "rich_10k":        {"name": "Loaded",              "emoji": "💰", "desc": "Have 10,000 chips at once","goal": 10000,"type": "balance",   "reward_chips": 0,    "reward_xp": 300,  "reward_title": None},
-    "rich_100k":       {"name": "Filthy Rich",         "emoji": "🤑", "desc": "Have 100,000 chips at once","goal":100000,"type": "balance",  "reward_chips": 0,    "reward_xp": 1000, "reward_title": "Filthy Rich"},
+    "rich_10k":        {"name": "Loaded",              "emoji": "<:cash_bills:1492795886483279993>", "desc": "Have 10,000 chips at once","goal": 10000,"type": "balance",   "reward_chips": 0,    "reward_xp": 300,  "reward_title": None},
+    "rich_100k":       {"name": "Filthy Rich",         "emoji": "<:money_face:1492795921728274442>", "desc": "Have 100,000 chips at once","goal":100000,"type": "balance",  "reward_chips": 0,    "reward_xp": 1000, "reward_title": "Filthy Rich"},
 }
 
 
@@ -148,14 +148,14 @@ class AchievementsCog(commands.Cog, EconomyMixin, name="Achievements"):
             return
 
         embed = discord.Embed(
-            title=f"🏆 Achievement Unlocked!",
+            title=f"{ACHIEVEMENT_EMOJI} Achievement Unlocked!",
             description=f"{ach['emoji']} **{ach['name']}**\n{ach['desc']}",
             color=discord.Color.gold(),
         )
         parts = []
         if chips: parts.append(f"+{chips:,} {CHIP_EMOJI}")
         if xp:    parts.append(f"+{xp} {XP_EMOJI}")
-        if title: parts.append(f"🎖️ Title: **{title}**")
+        if title: parts.append(f"{ACHIEVEMENT_EMOJI} Title: **{title}**")
         if parts:
             embed.add_field(name=f"{GIFT_EMOJI} Reward", value=" | ".join(parts), inline=False)
         try:
