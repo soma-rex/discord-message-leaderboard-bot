@@ -872,7 +872,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     """Texas Hold'em poker tables that continue until the table ends."""
 
     poker_group = app_commands.Group(name="poker", description="Texas Hold'em with chips")
-    leaderboard_group = app_commands.Group(name="leaderboard", description="Leaderboard commands")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -1629,49 +1628,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if not game["hand_active"] and game["started"]:
             if len(eligible_table_players(game)) < 2:
                 self._cancel_pending_start(game)
-
-    @app_commands.command(name="chips", description="Check your chip balance")
-    async def poker_chips(self, interaction: discord.Interaction):
-        chips = self.get_chips(interaction.user.id)
-        await interaction.response.send_message(
-            embed=discord.Embed(
-                title="Chip Balance",
-                description=f"**{chips:,}** {CHIP_EMOJI}",
-                color=discord.Color.gold(),
-            )
-        )
-
-    @leaderboard_group.command(name="chips", description="Show the richest chip balances")
-    async def chips_leaderboard(self, interaction: discord.Interaction):
-        self.cursor.execute("SELECT user_id, chips FROM poker_chips ORDER BY chips DESC LIMIT 10")
-        leaders = self.cursor.fetchall()
-        if not leaders:
-            await interaction.response.send_message("No chip data yet.", ephemeral=True)
-            return
-
-        self.ensure_chips(interaction.user.id)
-        self.cursor.execute("SELECT COUNT(*) FROM poker_chips WHERE chips > ?", (self.get_chips(interaction.user.id),))
-        higher_count = self.cursor.fetchone()[0]
-        user_rank = higher_count + 1
-
-        medals = [
-            "<a:first:1479896994293219418>",
-            "<a:second:1479896996331524229>",
-            "<a:third:1480093491332780072>",
-        ]
-        lines = []
-        for index, (user_id, chips) in enumerate(leaders, start=1):
-            name = await fetch_display_name(self.bot, interaction.guild, user_id)
-            icon = medals[index - 1] if index <= 3 else "-"
-            lines.append(f"{icon} **{name}** - `{chips:,}` {CHIP_EMOJI}")
-
-        embed = discord.Embed(
-            title="<:pandatrophy:1479896789393084580> Chip Leaderboard",
-            description="\n".join(lines),
-            color=discord.Color.gold(),
-        )
-        embed.set_footer(text=f"Your Rank: #{user_rank} | Your Balance: {self.get_chips(interaction.user.id):,}")
-        await interaction.response.send_message(embed=embed)
 
     @poker_group.command(name="create", description="Create a poker table")
     @app_commands.describe(table="Choose which table to open")

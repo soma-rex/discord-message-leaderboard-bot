@@ -124,7 +124,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # BALANCE
     # ─────────────────────────────────────────
-    @eco_group.command(name="balance", description="Check your chip wallet and bank balance")
+    @app_commands.command(name="balance", description="Check your chip wallet and bank balance")
     async def balance(self, interaction: discord.Interaction, user: discord.Member | None = None):
         target = user or interaction.user
         wallet = self.get_wallet(target.id)
@@ -589,7 +589,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
 
         await interaction.response.send_message(embed=embed)
 
-    @shop_group.command(name="inventory", description="View your inventory")
+    @app_commands.command(name="inventory", description="View your inventory")
     async def inventory(self, interaction: discord.Interaction, user: discord.Member | None = None):
         target = user or interaction.user
         inv    = self.get_inventory(target.id)
@@ -634,7 +634,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
             return await interaction.response.send_message(
                 embed=discord.Embed(
                     title="⚡ Active Effects",
-                    description="No active effects. Use items from your `/shop inventory`!",
+                    description="No active effects. Use items from your `/inventory`!",
                     color=discord.Color.dark_grey(),
                 ), ephemeral=True)
 

@@ -11,26 +11,26 @@ HELP_PAGES = {
         "title": "Help",
         "description": "Pick a category from the dropdown below. Prefix commands use `;` or `&`.",
         "fields": [
-            ("Core", "`/eco ...` `/shop ...` `/level ...` `/quests ...` `/achievements ...`"),
-            ("Games", "`/chips` `/leaderboard chips` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`"),
-            ("Tools", "`/calc eval` `/calc simplify` `/calc diff` `/calc integrate` `/calc solve` `/calc latex`"),
-            ("Other", "`/stats ...` `/ai ...` `/register` `/profile ...` `/admin ...`"),
+            ("Core", "`/balance` `/eco ...` `/inventory` `/shop ...` `/level ...` `/quests ...` `/achievements ...`"),
+            ("Games", "`/balance` `/eco richest` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`"),
+            ("Tools", "`/calc` `/help` `/slowmode`"),
+            ("Other", "`/stats ...` `/ai ...` `/register` `/staffprofile ...` `/admin ...`"),
         ],
     },
     "calculator": {
         "title": "Help - Calculator",
-        "description": "Advanced symbolic math with CodeCogs LaTeX previews.",
+        "description": "Run one equation once, then use buttons to switch between operations.",
         "fields": [
-            ("Compute", "`/calc eval` `/calc simplify` `/calc domain`"),
-            ("Calculus", "`/calc diff` `/calc integrate`"),
-            ("Equation Tools", "`/calc solve` `/calc latex`"),
+            ("Command", "`/calc <expression>`"),
+            ("Buttons", "`Evaluate` `Simplify` `Differentiate` `Integrate` `Solve` `Domain` `LaTeX`"),
+            ("Tip", "Your original expression stays unchanged so you can try multiple operations quickly."),
         ],
     },
     "economy": {
         "title": "Help - Economy",
         "description": "Earn, store, and move chips.",
         "fields": [
-            ("Money", "`/eco balance` `/eco deposit` `/eco withdraw` `/eco transfer`"),
+            ("Money", "`/balance` `/eco deposit` `/eco withdraw` `/eco transfer`"),
             ("Grinding", "`/eco daily` `/eco weekly` `/eco work` `/eco crime` `/eco beg`"),
             ("Extras", "`/eco richest` `/eco effects` `/eco titles` `/eco settitle`"),
         ],
@@ -39,7 +39,7 @@ HELP_PAGES = {
         "title": "Help - Shop",
         "description": "Buy boosts, utility items, and prestige tools.",
         "fields": [
-            ("Commands", "`/shop browse` `/shop buy` `/shop use` `/shop inventory`"),
+            ("Commands", "`/shop browse` `/shop buy` `/shop use` `/inventory`"),
             ("Popular Items", "`lucky_charm` `shield` `xp_boost` `multiplier` `vault_key` `prestige_token`"),
         ],
     },
@@ -64,7 +64,7 @@ HELP_PAGES = {
         "title": "Help - Achievements",
         "description": "Permanent milestones across economy, gambling, and progression.",
         "fields": [
-            ("Commands", "`/achievements list` `/achievements showcase` `/achievements leaderboard`"),
+            ("Commands", "`/achievements list`"),
             ("Rewards", "Achievements can grant chips, XP, and titles."),
         ],
     },
@@ -72,24 +72,24 @@ HELP_PAGES = {
         "title": "Help - Games",
         "description": "Casino-style commands using the shared chip economy.",
         "fields": [
-            ("Essentials", "`/eco daily` `/chips` `/leaderboard chips`"),
+            ("Essentials", "`/eco daily` `/balance` `/eco richest`"),
             ("Tables", "`/poker create` `/poker join` `/poker start` `/poker end`"),
             ("Casino", "`/blackjack play` `/roulette spin` `/roulette table` `/slots spin` `/slots paytable` `/bet` `/roll`"),
         ],
     },
     "ai": {
         "title": "Help - AI",
-        "description": "AI chat, memory, and personality controls.",
+        "description": "AI chat, allowed-channel setup, and personality controls.",
         "fields": [
-            ("Commands", "`/ai channel` `/ai personality` `/ai memory` `/ai forget` `/ai status`"),
+            ("Commands", "`/ai channel` `/ai personality` `/ai status`"),
             ("Prefix Mode", "`;mode <mode>`"),
         ],
     },
     "stats": {
         "title": "Help - Stats",
-        "description": "Leaderboard and event tracking commands.",
+        "description": "Leaderboard and message event tracking commands.",
         "fields": [
-            ("Commands", "`/stats leaderboard` `/stats rank` `/event start` `/event time` `/event end`"),
+            ("Commands", "`/stats leaderboard` `/stats rank` `/messagevent start` `/messagevent time` `/messagevent end`"),
             ("Config", "`/config channel` `/config leaderboard_channel` `/config cooldown`"),
         ],
     },
@@ -97,15 +97,16 @@ HELP_PAGES = {
         "title": "Help - Staff",
         "description": "Staff registration, progress, and break management.",
         "fields": [
-            ("Commands", "`/register` `/profile view` `/profile edit` `/enterbday` `/weeklyprogress` `/staffprogress` `/sotm`"),
-            ("Break Tools", "`/staff break` `/staff endbreak` `/staff sethiredate`"),
+            ("Commands", "`/register` `/staffprofile view` `/staffprofile edit` `/enterbday` `/weeklyprogress` `/staffprogress` `/sotm`"),
+            ("Break Tools", "`/staff break` `/staff endbreak` `/staff sethiredate` `/staff updateregistry`"),
         ],
     },
     "admin": {
         "title": "Help - Admin",
         "description": "Administrative and moderation tools.",
         "fields": [
-            ("Commands", "`/admin resetuser` `/admin resetall` `/admin debug` `/findreaction` `/avatar` `/banner`"),
+            ("Commands", "`/admin resetuser` `/admin resetall` `/admin debug` `/admin echo` `/avatar` `/banner`"),
+            ("Channel Tools", "`/slowmode` `/slowmodeaccess add` `/slowmodeaccess remove` `/slowmodeaccess list`"),
             ("Poker Admin", "`/poker setchips` `/poker end`"),
         ],
     },
@@ -114,15 +115,15 @@ HELP_PAGES = {
 
 SELECT_OPTIONS = [
     ("overview", "Overview", "Quick command map"),
-    ("calculator", "Calculator", "Advanced symbolic math"),
+    ("calculator", "Calculator", "Interactive equation tools"),
     ("economy", "Economy", "Wallet, bank, and grinding"),
     ("shop", "Shop", "Items and inventory"),
     ("leveling", "Leveling", "XP, ranks, and notifications"),
     ("quests", "Quests", "Daily and weekly objectives"),
     ("achievements", "Achievements", "Milestones and rewards"),
     ("games", "Games", "Poker, slots, roulette, blackjack"),
-    ("ai", "AI", "AI chat and memory"),
-    ("stats", "Stats", "Leaderboards and events"),
+    ("ai", "AI", "AI chat and channel setup"),
+    ("stats", "Stats", "Leaderboards and message events"),
     ("staff", "Staff", "Staff tools and progress"),
     ("admin", "Admin", "Moderator and admin tools"),
 ]
@@ -168,7 +169,6 @@ class HelpSelect(discord.ui.Select):
                 ephemeral=True,
             )
             return
-
         self.help_view.page_key = self.values[0]
         self.help_view.refresh_select()
         await interaction.response.edit_message(
@@ -190,8 +190,6 @@ class HelpView(discord.ui.View):
 
 
 class HelpCog(commands.Cog, name="Help"):
-    """Interactive help command."""
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 

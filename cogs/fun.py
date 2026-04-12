@@ -20,16 +20,11 @@ from .chips import ChipsMixin, CHIP_EMOJI
 BOMB_REQUIRED_ROLE_ID = 996368478216929371
 MONEYBAG_EMOJI = "<:money_bag:1491430729832202363>"
 DICE_EMOJI = "<:dice:1491430727643037838>"
-APRIL_FOOLS_IMAGE_URL = "https://imgs.search.brave.com/CBANpKTCDW5yWUTMPcNueFI4zyQixIt-tyRbRxbBMHM/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly90aHVt/YnMuZHJlYW1zdGlt/ZS5jb20vYi9zdC1h/cHJpbC1mb29scy1k/YXktdGV4dC1iYW5u/ZXItY29sb3JmdWwt/cGxhc3RpY2luZS1s/ZXR0ZXJpbmctdy1j/b25mZXR0aS1wYXJ0/eS1ibG93ZXItY2xv/d24tbm9zZS1zb2xp/ZC1icmlnaHQtb3Jh/bmdlLWJhY2tncm91/bmQtMTA5NTUyODUx/LmpwZw"
 LURKING_RESPONSE_EMOJIS = [
     "<a:cutelurk2:1488518162923393155>",
     "<a:cutelurk:1488518166006202479>",
     "<a:bunnylurk:1488500011699535913>",
 ]
-
-
-async def is_bot_owner(interaction: discord.Interaction) -> bool:
-    return await interaction.client.is_owner(interaction.user)
 
 
 class LurkingView(discord.ui.View):
@@ -132,26 +127,6 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
         )
         return response.choices[0].message.content
 
-    async def _generate_recommendation(self, prompt: str) -> str:
-        return await asyncio.to_thread(self._generate_recommendation_sync, prompt)
-
-    def _generate_recommendation_sync(self, prompt: str) -> str:
-        full_prompt = f"""
-    Based on this request: "{prompt}"
-
-    Recommend 1-3 shows, anime, manga, or books.
-    Keep it short and clear.
-    Include a short reason for each.
-    """
-        response = self.groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": "You are a recommendation expert for anime, shows, books, and manga."},
-                {"role": "user",   "content": full_prompt}
-            ]
-        )
-        return response.choices[0].message.content
-
     # ── Bomb state exposed so on_message can read it ──
     def is_bombed(self, user_id: int) -> bool:
         if user_id in self.bombed_users:
@@ -159,17 +134,6 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
                 return True
             del self.bombed_users[user_id]
         return False
-
-    def _build_april_fools_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="APRIL FOOLS",
-            description="# APRIL FOOLS\n## APRIL FOOLS\n### APRIL FOOLS",
-            color=discord.Color.from_rgb(76, 175, 255),
-        )
-        if APRIL_FOOLS_IMAGE_URL:
-            embed.set_image(url=APRIL_FOOLS_IMAGE_URL)
-        embed.set_footer(text="Pranked.")
-        return embed
 
     # ─────────────────────────────────────────
     # PREFIX COMMANDS
@@ -226,20 +190,6 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             await ctx.send(f"{member.mention} {roast_text}")
         except Exception as e:
             await ctx.send(f"Error: {e}")
-
-    @commands.command(name="recommend")
-    async def recommend_prefix(self, ctx: commands.Context, *, prompt: str):
-        try:
-            result = await self._generate_recommendation(prompt)
-            await ctx.send(result)
-        except Exception as e:
-            await ctx.send(f"Error: {e}")
-
-    @commands.command(name="fool")
-    @commands.is_owner()
-    async def fool_prefix(self, ctx: commands.Context):
-        embed = self._build_april_fools_embed()
-        await ctx.send(embed=embed)
 
     @commands.command(name="eval")
     @commands.is_owner()
@@ -445,21 +395,6 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             await interaction.followup.send(f"{user.mention} {roast_text}")
         except Exception as e:
             await interaction.followup.send(f"Error: {e}")
-
-    @app_commands.command(name="recommend", description="Get AI recommendations")
-    async def recommend_slash(self, interaction: discord.Interaction, prompt: str):
-        await interaction.response.defer()
-        try:
-            result = await self._generate_recommendation(prompt)
-            await interaction.followup.send(result)
-        except Exception as e:
-            await interaction.followup.send(f"Error: {e}")
-
-    @app_commands.command(name="fool", description="Send a giant April Fools embed")
-    @app_commands.check(is_bot_owner)
-    async def fool_slash(self, interaction: discord.Interaction):
-        embed = self._build_april_fools_embed()
-        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="lurking", description="Ask who's lurking.")
     async def lurking_slash(self, interaction: discord.Interaction):

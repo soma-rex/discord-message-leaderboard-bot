@@ -207,7 +207,7 @@ async def on_app_command_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.CheckFailure):
         message = (
             "Only the bot owner can use this command."
-            if getattr(interaction.command, "name", "") in {"fool", "echo"}
+            if getattr(interaction.command, "name", "") == "echo"
             else "You need admin permission to use this command."
         )
         if interaction.response.is_done():

@@ -233,7 +233,7 @@ class ProfileEditView(discord.ui.View):
 
 class StaffLoggerCog(commands.Cog, name="Staff Logger"):
     staff_group = app_commands.Group(name="staff", description="Staff management commands")
-    profile_group = app_commands.Group(name="profile", description="Staff profile commands")
+    profile_group = app_commands.Group(name="staffprofile", description="Staff profile commands")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -1261,7 +1261,7 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             return
         await interaction.response.send_message(embed=embed)
 
-    @commands.command(name="profile")
+    @commands.command(name="staffprofile")
     async def profile_prefix(self, ctx: commands.Context, user: discord.Member | None = None):
         if not self._can_use_staff_commands(ctx.author):
             await ctx.send(self._not_registered_message())
@@ -1363,65 +1363,6 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
             inline=False,
         )
         await ctx.send(embed=embed)
-
-    @app_commands.command(name="rolepingcount", description="Count how many times a user pinged a role from message history")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def role_ping_count(
-        self,
-        interaction: discord.Interaction,
-        user: discord.Member,
-        role: discord.Role,
-        days: app_commands.Range[int, 1, 365] = 30,
-        channel: discord.TextChannel | None = None,
-    ):
-        await interaction.response.defer()
-
-        after = datetime.now(timezone.utc) - timedelta(days=days)
-        channels: list[discord.TextChannel]
-        if channel is not None:
-            channels = [channel]
-        else:
-            channels = [text_channel for text_channel in interaction.guild.text_channels]
-
-        count = 0
-        scanned_messages = 0
-        scanned_channels = 0
-        skipped_channels: list[str] = []
-
-        for target_channel in channels:
-            permissions = target_channel.permissions_for(interaction.guild.me)
-            if not permissions.read_message_history or not permissions.view_channel:
-                skipped_channels.append(target_channel.mention)
-                continue
-
-            scanned_channels += 1
-            try:
-                async for message in target_channel.history(limit=None, after=after, oldest_first=False):
-                    scanned_messages += 1
-                    if message.author.id != user.id:
-                        continue
-                    if any(mentioned_role.id == role.id for mentioned_role in message.role_mentions):
-                        count += 1
-            except discord.Forbidden:
-                skipped_channels.append(target_channel.mention)
-
-        embed = discord.Embed(title="Role Ping Count", color=discord.Color.blurple())
-        embed.add_field(name="User", value=user.mention, inline=True)
-        embed.add_field(name="Role", value=role.mention, inline=True)
-        embed.add_field(name="Window", value=f"Last {days} day(s)", inline=True)
-        embed.add_field(name="Matches", value=str(count), inline=True)
-        embed.add_field(name="Channels Scanned", value=str(scanned_channels), inline=True)
-        embed.add_field(name="Messages Scanned", value=str(scanned_messages), inline=True)
-        if channel is not None:
-            embed.add_field(name="Channel Filter", value=channel.mention, inline=False)
-        if skipped_channels:
-            embed.add_field(
-                name="Skipped Channels",
-                value=", ".join(skipped_channels[:10]) + ("..." if len(skipped_channels) > 10 else ""),
-                inline=False,
-            )
-        embed.set_footer(text="Counts are based on currently accessible message history only.")
-        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="editlifetimestats", description="Admin only: set lifetime profile totals")
     @app_commands.checks.has_permissions(administrator=True)

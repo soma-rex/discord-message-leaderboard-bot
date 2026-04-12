@@ -1,5 +1,5 @@
 """
-cogs/calculator.py - Symbolic calculator commands with LaTeX rendering
+cogs/calculator.py - Interactive symbolic calculator
 """
 from __future__ import annotations
 
@@ -46,9 +46,7 @@ class CalculatorError(ValueError):
 @dataclass(slots=True)
 class CalculationResult:
     title: str
-    input_text: str
     output_text: str
-    input_latex: str
     output_latex: str
     extra_lines: tuple[str, ...] = ()
 
@@ -65,13 +63,13 @@ def _parse_expression(expression: str):
             transformations=TRANSFORMATIONS,
             evaluate=True,
         )
-    except Exception as exc:  # pragma: no cover - SymPy parser raises many types
+    except Exception as exc:
         raise CalculatorError(f"Couldn't parse `{expression}`.") from exc
 
 
 def _parse_equation(equation: str) -> Eq:
     if "=" not in equation:
-        raise CalculatorError("Use an equals sign, like `x^2 - 4 = 0`.")
+        raise CalculatorError("Use an equals sign for solving, like `x^2 - 4 = 0`.")
     left, right = equation.split("=", 1)
     return Eq(_parse_expression(left), _parse_expression(right))
 
@@ -96,49 +94,28 @@ def _pick_symbol_from_items(items: Iterable, variable: str | None) -> Symbol:
     return sorted(free_symbols, key=lambda item: item.name)[0]
 
 
-def make_embed(result: CalculationResult) -> discord.Embed:
-    embed = discord.Embed(title=result.title, color=discord.Color.blurple())
-    embed.add_field(name="Input", value=f"```text\n{result.input_text}\n```", inline=False)
-    embed.add_field(name="Result", value=f"```text\n{result.output_text}\n```", inline=False)
-    if result.extra_lines:
-        embed.add_field(name="Details", value="\n".join(result.extra_lines), inline=False)
-    embed.add_field(
-        name="LaTeX Preview",
-        value=(
-            f"[Input Image]({build_latex_image_url(result.input_latex)})\n"
-            f"[Result Image]({build_latex_image_url(result.output_latex)})"
-        ),
-        inline=False,
-    )
-    embed.set_image(url=build_latex_image_url(result.output_latex))
-    embed.set_footer(text="Rendered with CodeCogs LaTeX")
-    return embed
-
-
-def calculate_evaluate(expression: str) -> CalculationResult:
+def calculate_evaluate(expression: str, variable: str | None = None) -> CalculationResult:
+    del variable
     expr = _parse_expression(expression)
     result = expr.evalf() if not expr.free_symbols else simplify(expr)
     extra_lines = ()
     if expr.free_symbols:
         extra_lines = ("Symbols remain, so the result was simplified symbolically.",)
     return CalculationResult(
-        title="Calculator",
-        input_text=sstr(expr),
+        title="Evaluate",
         output_text=sstr(result),
-        input_latex=latex(expr),
         output_latex=latex(result),
         extra_lines=extra_lines,
     )
 
 
-def calculate_simplify(expression: str) -> CalculationResult:
+def calculate_simplify(expression: str, variable: str | None = None) -> CalculationResult:
+    del variable
     expr = _parse_expression(expression)
     result = simplify(expr)
     return CalculationResult(
         title="Simplify",
-        input_text=sstr(expr),
         output_text=sstr(result),
-        input_latex=latex(expr),
         output_latex=latex(result),
     )
 
@@ -148,10 +125,8 @@ def calculate_diff(expression: str, variable: str | None = None) -> CalculationR
     symbol = _pick_symbol(expr, variable)
     result = expr.diff(symbol)
     return CalculationResult(
-        title="Differentiate",
-        input_text=f"d/d{symbol} {sstr(expr)}",
+        title=f"Differentiate by {symbol}",
         output_text=sstr(result),
-        input_latex=latex(expr),
         output_latex=latex(result),
     )
 
@@ -161,32 +136,30 @@ def calculate_integrate(expression: str, variable: str | None = None) -> Calcula
     symbol = _pick_symbol(expr, variable)
     result = expr.integrate(symbol)
     return CalculationResult(
-        title="Integrate",
-        input_text=f"Integral of {sstr(expr)} d{symbol}",
+        title=f"Integrate by {symbol}",
         output_text=f"{sstr(result)} + C",
-        input_latex=latex(expr),
         output_latex=latex(result) + " + C",
     )
 
 
-def calculate_solve(equation: str, variable: str | None = None) -> CalculationResult:
-    relation = _parse_equation(equation)
+def calculate_solve(expression: str, variable: str | None = None) -> CalculationResult:
+    relation = _parse_equation(expression)
     symbol = _pick_symbol_from_items((relation.lhs, relation.rhs), variable)
     solutions = solve(relation, symbol)
     if not solutions:
-        output_text = "No exact symbolic solution found."
-        output_latex = latex(relation)
+        return CalculationResult(
+            title=f"Solve for {symbol}",
+            output_text="No exact symbolic solution found.",
+            output_latex=latex(relation),
+        )
+    output_text = "\n".join(f"{symbol} = {sstr(item)}" for item in solutions)
+    if len(solutions) == 1:
+        output_latex = latex(Eq(symbol, solutions[0]))
     else:
-        output_text = "\n".join(f"{symbol} = {sstr(item)}" for item in solutions)
-        if len(solutions) == 1:
-            output_latex = latex(Eq(symbol, solutions[0]))
-        else:
-            output_latex = latex(symbol) + " \\in \\left\\{" + ", ".join(latex(item) for item in solutions) + "\\right\\}"
+        output_latex = latex(symbol) + " \\in \\left\\{" + ", ".join(latex(item) for item in solutions) + "\\right\\}"
     return CalculationResult(
-        title="Solve Equation",
-        input_text=sstr(relation),
+        title=f"Solve for {symbol}",
         output_text=output_text,
-        input_latex=latex(relation),
         output_latex=output_latex,
     )
 
@@ -196,95 +169,136 @@ def calculate_domain(expression: str, variable: str | None = None) -> Calculatio
     symbol = _pick_symbol(expr, variable)
     result = continuous_domain(expr, symbol, S.Reals)
     return CalculationResult(
-        title="Domain",
-        input_text=sstr(expr),
+        title=f"Domain in {symbol}",
         output_text=sstr(result),
-        input_latex=latex(expr),
         output_latex=latex(result),
     )
 
 
-def calculate_latex(expression: str) -> CalculationResult:
+def calculate_latex(expression: str, variable: str | None = None) -> CalculationResult:
+    del variable
     expr = _parse_expression(expression)
     rendered = latex(expr)
     return CalculationResult(
         title="LaTeX",
-        input_text=sstr(expr),
         output_text=rendered,
-        input_latex=rendered,
         output_latex=rendered,
         extra_lines=(f"```text\n{pretty(expr)}\n```",),
     )
 
 
-class CalculatorCog(commands.Cog, name="Calculator"):
-    """Symbolic calculator and LaTeX rendering commands."""
+CALCULATOR_ACTIONS: dict[str, tuple[str, callable]] = {
+    "evaluate": ("Evaluate", calculate_evaluate),
+    "simplify": ("Simplify", calculate_simplify),
+    "differentiate": ("Differentiate", calculate_diff),
+    "integrate": ("Integrate", calculate_integrate),
+    "solve": ("Solve", calculate_solve),
+    "domain": ("Domain", calculate_domain),
+    "latex": ("LaTeX", calculate_latex),
+}
 
-    calc_group = app_commands.Group(name="calc", description="Advanced calculator commands")
+
+def build_session_embed(
+    expression: str,
+    variable: str | None,
+    action_key: str | None = None,
+    result: CalculationResult | None = None,
+    error_text: str | None = None,
+) -> discord.Embed:
+    embed = discord.Embed(title="Calculator", color=discord.Color.blurple())
+    embed.add_field(name="Original", value=f"```text\n{expression}\n```", inline=False)
+    embed.add_field(name="Variable", value=variable or "Auto", inline=True)
+
+    if action_key is None:
+        embed.add_field(name="Operation", value="Choose a button below.", inline=True)
+        embed.add_field(name="Result", value="No calculation run yet.", inline=False)
+        return embed
+
+    label = CALCULATOR_ACTIONS[action_key][0]
+    embed.add_field(name="Operation", value=label, inline=True)
+    if error_text is not None:
+        embed.add_field(name="Result", value=error_text, inline=False)
+        return embed
+
+    assert result is not None
+    embed.add_field(name="Result", value=f"```text\n{result.output_text}\n```", inline=False)
+    if result.extra_lines:
+        embed.add_field(name="Details", value="\n".join(result.extra_lines), inline=False)
+    embed.add_field(name="LaTeX Preview", value=f"[Result Image]({build_latex_image_url(result.output_latex)})", inline=False)
+    embed.set_image(url=build_latex_image_url(result.output_latex))
+    embed.set_footer(text="Your original equation stays unchanged. Use another button to try a different operation.")
+    return embed
+
+
+class CalcSessionView(discord.ui.View):
+    def __init__(self, owner_id: int, expression: str, variable: str | None):
+        super().__init__(timeout=600)
+        self.owner_id = owner_id
+        self.expression = expression
+        self.variable = variable
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the command user can use these calculator buttons.", ephemeral=True)
+            return False
+        return True
+
+    async def _run_action(self, interaction: discord.Interaction, action_key: str):
+        _, action = CALCULATOR_ACTIONS[action_key]
+        try:
+            result = action(self.expression, self.variable)
+        except CalculatorError as exc:
+            embed = build_session_embed(self.expression, self.variable, action_key, error_text=str(exc))
+        except Exception as exc:
+            embed = build_session_embed(self.expression, self.variable, action_key, error_text=f"Calculation failed: {exc}")
+        else:
+            embed = build_session_embed(self.expression, self.variable, action_key, result=result)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Evaluate", style=discord.ButtonStyle.primary, row=0)
+    async def evaluate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._run_action(interaction, "evaluate")
+
+    @discord.ui.button(label="Simplify", style=discord.ButtonStyle.secondary, row=0)
+    async def simplify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._run_action(interaction, "simplify")
+
+    @discord.ui.button(label="Differentiate", style=discord.ButtonStyle.secondary, row=0)
+    async def differentiate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._run_action(interaction, "differentiate")
+
+    @discord.ui.button(label="Integrate", style=discord.ButtonStyle.secondary, row=0)
+    async def integrate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._run_action(interaction, "integrate")
+
+    @discord.ui.button(label="Solve", style=discord.ButtonStyle.secondary, row=1)
+    async def solve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._run_action(interaction, "solve")
+
+    @discord.ui.button(label="Domain", style=discord.ButtonStyle.secondary, row=1)
+    async def domain_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._run_action(interaction, "domain")
+
+    @discord.ui.button(label="LaTeX", style=discord.ButtonStyle.secondary, row=1)
+    async def latex_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._run_action(interaction, "latex")
+
+
+class CalculatorCog(commands.Cog, name="Calculator"):
+    """Single-command symbolic calculator."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _run_calculation(self, interaction: discord.Interaction, action):
-        try:
-            result = action()
-        except CalculatorError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
-            return
-        except Exception as exc:
-            await interaction.response.send_message(
-                f"Calculation failed: {exc}",
-                ephemeral=True,
-            )
-            return
-        await interaction.response.send_message(embed=make_embed(result))
-
-    @calc_group.command(name="eval", description="Evaluate or simplify a math expression")
-    @app_commands.describe(expression="Expression like 2*sin(pi/4) + 3^2")
-    async def evaluate(self, interaction: discord.Interaction, expression: str):
-        await self._run_calculation(interaction, lambda: calculate_evaluate(expression))
-
-    @calc_group.command(name="simplify", description="Simplify a symbolic expression")
-    @app_commands.describe(expression="Expression like (x^2 - 1)/(x - 1)")
-    async def simplify_cmd(self, interaction: discord.Interaction, expression: str):
-        await self._run_calculation(interaction, lambda: calculate_simplify(expression))
-
-    @calc_group.command(name="diff", description="Differentiate an expression")
+    @app_commands.command(name="calc", description="Open an interactive calculator session for one equation")
     @app_commands.describe(
-        expression="Expression like x^3 + sin(x)",
-        variable="Differentiate with respect to this variable",
+        expression="Expression or equation like x^2 - 5*x + 6 = 0",
+        variable="Optional variable to use for diff, integrate, solve, or domain",
     )
-    async def diff_cmd(self, interaction: discord.Interaction, expression: str, variable: str | None = None):
-        await self._run_calculation(interaction, lambda: calculate_diff(expression, variable))
-
-    @calc_group.command(name="integrate", description="Integrate an expression")
-    @app_commands.describe(
-        expression="Expression like x^2 + cos(x)",
-        variable="Integrate with respect to this variable",
-    )
-    async def integrate_cmd(self, interaction: discord.Interaction, expression: str, variable: str | None = None):
-        await self._run_calculation(interaction, lambda: calculate_integrate(expression, variable))
-
-    @calc_group.command(name="solve", description="Solve an equation")
-    @app_commands.describe(
-        equation="Equation like x^2 - 5*x + 6 = 0",
-        variable="Solve for this variable",
-    )
-    async def solve_cmd(self, interaction: discord.Interaction, equation: str, variable: str | None = None):
-        await self._run_calculation(interaction, lambda: calculate_solve(equation, variable))
-
-    @calc_group.command(name="domain", description="Find the real-number domain of an expression")
-    @app_commands.describe(
-        expression="Expression like sqrt(x - 2)/(x - 5)",
-        variable="Use this variable for the domain",
-    )
-    async def domain_cmd(self, interaction: discord.Interaction, expression: str, variable: str | None = None):
-        await self._run_calculation(interaction, lambda: calculate_domain(expression, variable))
-
-    @calc_group.command(name="latex", description="Render an expression as LaTeX using CodeCogs")
-    @app_commands.describe(expression="Expression like alpha + 2*beta/gamma")
-    async def latex_cmd(self, interaction: discord.Interaction, expression: str):
-        await self._run_calculation(interaction, lambda: calculate_latex(expression))
+    async def calc(self, interaction: discord.Interaction, expression: str, variable: str | None = None):
+        view = CalcSessionView(interaction.user.id, expression.strip(), variable.strip() if variable else None)
+        embed = build_session_embed(view.expression, view.variable)
+        await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):
