@@ -520,6 +520,53 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         self.conn.commit()
         return self._registered_row(member.id)
 
+    def _delete_staff_user(self, user_id: int):
+        self.cursor.execute("DELETE FROM weekly_logs WHERE user_id = ?", (user_id,))
+        self.cursor.execute("DELETE FROM staff_users WHERE user_id = ?", (user_id,))
+        self.conn.commit()
+
+    async def _refresh_staff_registry(self, guild: discord.Guild) -> tuple[int, int]:
+        self.cursor.execute("SELECT user_id, role_type, is_on_break FROM staff_users")
+        rows = self.cursor.fetchall()
+
+        updated_count = 0
+        removed_count = 0
+
+        for user_id, stored_role_types, is_on_break in rows:
+            member = guild.get_member(user_id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except discord.HTTPException:
+                    member = None
+
+            if member is None:
+                if not is_on_break:
+                    self._delete_staff_user(user_id)
+                    removed_count += 1
+                continue
+
+            role_ids = {role.id for role in member.roles}
+            if is_on_break or TOUCHING_GRASS_ROLE_ID in role_ids:
+                continue
+
+            current_roles = self._resolve_role_types(member)
+            if current_roles:
+                serialized_roles = self._serialize_role_types(current_roles)
+                if serialized_roles != (stored_role_types or ""):
+                    self.cursor.execute(
+                        "UPDATE staff_users SET role_type = ? WHERE user_id = ?",
+                        (serialized_roles, user_id),
+                    )
+                    updated_count += 1
+                continue
+
+            self._delete_staff_user(user_id)
+            removed_count += 1
+
+        self.conn.commit()
+        return updated_count, removed_count
+
     def _display_name(self, guild: discord.Guild | None, user_id: int, fallback: str | None = None) -> str:
         if guild:
             member = guild.get_member(user_id)
@@ -1285,6 +1332,37 @@ class StaffLoggerCog(commands.Cog, name="Staff Logger"):
         embed = await self._build_staff_overview_embed_filtered(ctx.guild, "mod")
         view = StaffProgressView(self, ctx.guild, ctx.author.id)
         await ctx.send(embed=embed, view=view)
+
+    @staff_group.command(name="updateregistry", description="Sync the staff registry and remove users with no staff roles")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def staff_update_registry(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        updated_count, removed_count = await self._refresh_staff_registry(interaction.guild)
+
+        embed = discord.Embed(title="Staff Registry Updated", color=discord.Color.blurple())
+        embed.add_field(name="Roles Synced", value=str(updated_count), inline=True)
+        embed.add_field(name="Users Removed", value=str(removed_count), inline=True)
+        embed.add_field(
+            name="Protected",
+            value="Members on break or holding the Touching Grass role were left untouched.",
+            inline=False,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @commands.command(name="updateregistry")
+    @commands.has_permissions(administrator=True)
+    async def staff_update_registry_prefix(self, ctx: commands.Context):
+        updated_count, removed_count = await self._refresh_staff_registry(ctx.guild)
+
+        embed = discord.Embed(title="Staff Registry Updated", color=discord.Color.blurple())
+        embed.add_field(name="Roles Synced", value=str(updated_count), inline=True)
+        embed.add_field(name="Users Removed", value=str(removed_count), inline=True)
+        embed.add_field(
+            name="Protected",
+            value="Members on break or holding the Touching Grass role were left untouched.",
+            inline=False,
+        )
+        await ctx.send(embed=embed)
 
     @app_commands.command(name="rolepingcount", description="Count how many times a user pinged a role from message history")
     @app_commands.checks.has_permissions(administrator=True)

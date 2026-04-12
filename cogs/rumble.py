@@ -9,6 +9,7 @@ from discord.ext import commands
 
 
 RUMBLE_BOT_ID = 693167035068317736
+RUMBLE_STATUS_BUTTON_ID = "rumble:check_status"
 REVIVE_EMOJI_MARKERS = ("<:re:", "<a:re:", ":re:")
 REVIVE_PATTERNS = (
     r"^(?P<name>.+?)\s+revived\b",
@@ -182,24 +183,86 @@ def build_status_message(data: dict) -> str:
     return "\n".join(lines)
 
 
+def build_status_embed(data: dict) -> discord.Embed:
+    if data["alive"]:
+        embed = discord.Embed(
+            title="Rumble Status",
+            description="<a:check:1479904904205041694> You are alive.",
+            color=discord.Color.green(),
+        )
+        if data["revive_msg"]:
+            embed.add_field(name="Revive", value=data["revive_msg"], inline=False)
+        return embed
+
+    embed = discord.Embed(
+        title="Rumble Status",
+        description="<a:dead:1486706627376713829> You are out.",
+        color=discord.Color.red(),
+    )
+    if data["death_msg"]:
+        embed.add_field(name="Death", value=data["death_msg"], inline=False)
+    if data["revive_msg"]:
+        embed.add_field(name="Revive", value=data["revive_msg"], inline=False)
+    if data["second_death_msg"]:
+        embed.add_field(name="Death Again", value=data["second_death_msg"], inline=False)
+    return embed
+
+
+def build_status_prompt_embed() -> discord.Embed:
+    return discord.Embed(
+        title="Rumble Tracker",
+        description="Tap the button below to check whether you're still in the fight.",
+        color=discord.Color.blurple(),
+    )
+
+
+def build_tracking_started_embed() -> discord.Embed:
+    return discord.Embed(
+        title="Rumble Tracker",
+        description="<a:check:1479904904205041694> Rumble detected. Tracking has started.",
+        color=discord.Color.green(),
+    )
+
+
+def build_tracking_ended_embed(host_mention: str | None = None) -> discord.Embed:
+    description = "🏁 The rumble has ended."
+    if host_mention:
+        description = f"{host_mention}, the rumble has ended. <:rumble:1486707784450969700>"
+
+    return discord.Embed(
+        title="Rumble Tracker",
+        description=description,
+        color=discord.Color.dark_grey(),
+    )
+
+
 class AliveView(discord.ui.View):
     def __init__(self, rumble: dict):
         super().__init__(timeout=None)
         self.rumble = rumble
 
-    @discord.ui.button(label="Am I Alive?", style=discord.ButtonStyle.primary)
+    @discord.ui.button(
+        label="Am I Alive?",
+        style=discord.ButtonStyle.primary,
+        emoji="<:rumble:1486707784450969700>",
+        custom_id=RUMBLE_STATUS_BUTTON_ID,
+    )
     async def check_alive(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = interaction.user.id
         if user_id not in self.rumble["participants"]:
             await interaction.response.send_message(
-                "<a:cross:1479904917702578306> You didn't join this rumble.",
+                embed=discord.Embed(
+                    title="Rumble Status",
+                    description="<a:cross:1479904917702578306> You didn't join this rumble.",
+                    color=discord.Color.orange(),
+                ),
                 ephemeral=True,
             )
             return
 
         data = self.rumble["participants"][user_id]
         await interaction.response.send_message(
-            build_status_message(data),
+            embed=build_status_embed(data),
             ephemeral=True,
         )
 
@@ -249,7 +312,7 @@ class RumbleCog(commands.Cog, name="Rumble"):
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         target_rumble = None
         for rumble in self.rumbles.values():
-            if payload.message_id == rumble["start_message_id"]:
+            if payload.message_id == rumble["join_message_id"]:
                 target_rumble = rumble
                 break
         if not target_rumble:
@@ -273,7 +336,8 @@ class RumbleCog(commands.Cog, name="Rumble"):
                 "active": False,
                 "host": None,
                 "participants": {},
-                "start_message_id": None,
+                "join_message_id": None,
+                "session_started": False,
                 "alive_views": [],
             }
         rumble = self.rumbles[channel_id]
@@ -306,11 +370,15 @@ class RumbleCog(commands.Cog, name="Rumble"):
                 rumble["host"] = raw_host
 
             rumble["active"] = True
-            rumble["start_message_id"] = message.id
+            rumble["join_message_id"] = message.id
+            rumble["session_started"] = False
             rumble["participants"] = {}
             rumble["alive_views"].clear()
+            return
 
-            await message.channel.send("<a:check:1479904904205041694> Rumble detected and tracking started!")
+        if rumble["active"] and not rumble["session_started"] and "started a new rumble royale session" in text:
+            rumble["session_started"] = True
+            await message.channel.send(embed=build_tracking_started_embed())
             return
 
         if rumble["active"] and "round" in text:
@@ -333,11 +401,13 @@ class RumbleCog(commands.Cog, name="Rumble"):
 
             view = AliveView(rumble)
             rumble["alive_views"].append(view)
-            await message.channel.send("Check your status:", view=view)
+            await message.channel.send(embed=build_status_prompt_embed(), view=view)
             return
 
         if rumble["active"] and ("winner" in text or "won the rumble" in text):
             rumble["active"] = False
+            rumble["join_message_id"] = None
+            rumble["session_started"] = False
             for view in rumble["alive_views"]:
                 for item in view.children:
                     item.disabled = True
@@ -354,11 +424,9 @@ class RumbleCog(commands.Cog, name="Rumble"):
                         break
 
             if host_mention:
-                await message.channel.send(
-                    f"{host_mention}, The rumble has ended! <:rumble:1486707784450969700>"
-                )
+                await message.channel.send(embed=build_tracking_ended_embed(host_mention))
             else:
-                await message.channel.send("🏁 Rumble ended!")
+                await message.channel.send(embed=build_tracking_ended_embed())
 
 
 async def setup(bot: commands.Bot):
