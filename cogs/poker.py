@@ -1699,6 +1699,47 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         embed.add_field(name="New balance", value=f"**{total:,}** {CHIP_EMOJI}", inline=True)
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(name="setchips", description="Add or remove chips (owner only)")
+    @app_commands.check(is_owner)
+    async def setchips(self, interaction: discord.Interaction, user: discord.Member, amount: int):
+        await self.poker_setchips.callback(self, interaction, user, amount)
+
+    @app_commands.command(name="wipe", description="Wipe a user's chips and inventory (owner only)")
+    @app_commands.check(is_owner)
+    async def wipe(self, interaction: discord.Interaction, user: discord.Member):
+        self.ensure_chips(user.id)
+        self.cursor.execute("UPDATE poker_chips SET chips = 0 WHERE user_id = ?", (user.id,))
+        self.cursor.execute("DELETE FROM inventory WHERE user_id = ?", (user.id,))
+        self.cursor.execute("UPDATE economy SET bank = 0 WHERE user_id = ?", (user.id,))
+        self.conn.commit()
+        embed = discord.Embed(
+            title="User Wiped",
+            description=f"{user.mention}'s chips, bank, and inventory have been cleared.",
+            color=discord.Color.red(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @commands.command(name="setchips")
+    async def setchips_prefix(self, ctx: commands.Context, user: discord.Member, amount: int):
+        if ctx.author.id != 720550790036455444:
+            return
+        self.ensure_chips(user.id)
+        self.cursor.execute("UPDATE poker_chips SET chips = chips + ? WHERE user_id = ?", (amount, user.id))
+        self.conn.commit()
+        total = self.get_chips(user.id)
+        await ctx.send(f"Updated {user.mention}: **{amount:+}** chips. New balance: **{total:,}** {CHIP_EMOJI}")
+
+    @commands.command(name="wipe")
+    async def wipe_prefix(self, ctx: commands.Context, user: discord.Member):
+        if ctx.author.id != 720550790036455444:
+            return
+        self.ensure_chips(user.id)
+        self.cursor.execute("UPDATE poker_chips SET chips = 0 WHERE user_id = ?", (user.id,))
+        self.cursor.execute("DELETE FROM inventory WHERE user_id = ?", (user.id,))
+        self.cursor.execute("UPDATE economy SET bank = 0 WHERE user_id = ?", (user.id,))
+        self.conn.commit()
+        await ctx.send(f"Wiped {user.mention}'s chips, bank, and inventory.")
+
     @poker_group.command(name="end", description="Force-end the current poker table")
     @app_commands.checks.has_permissions(administrator=True)
     async def poker_end(self, interaction: discord.Interaction):

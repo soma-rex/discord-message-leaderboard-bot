@@ -156,24 +156,24 @@ class StatsCog(commands.Cog, name="Stats"):
                 user_rank = index
                 break
 
-        embed = discord.Embed(title="Your Rank", color=discord.Color.random())
+        embed = discord.Embed(title="<:award:1493499416231809084> Your Rank", color=discord.Color.random())
         if user_rank:
             if user_rank > 1:
                 _, above_messages = sorted_users[user_rank - 2]
                 messages_needed   = above_messages - user_messages + 1
                 embed.description = (
-                    f"Rank: #{user_rank}\n"
-                    f"Messages: {user_messages}\n"
-                    f"Messages needed to rank up: {messages_needed}"
+                    f"<:award:1493499416231809084> **Rank:** `#{user_rank}`\n"
+                    f"<:messagecircle:1493499402076160021> **Messages:** `{user_messages}`\n"
+                    f"<:chevronsup:1493499410892718163> **To rank up:** `{messages_needed}` more messages"
                 )
             else:
                 embed.description = (
-                    f"Rank: #1\n"
-                    f"Messages: {user_messages}\n"
-                    "You are the top chatter!"
+                    f"<:award:1493499416231809084> **Rank:** `#1`\n"
+                    f"<:messagecircle:1493499402076160021> **Messages:** `{user_messages}`\n"
+                    f"<:zap:1493499390520852610> You are the top chatter!"
                 )
         else:
-            embed.description = "You have no counted messages yet."
+            embed.description = "<:messagecircle:1493499402076160021> You have no counted messages yet."
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

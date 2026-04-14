@@ -8,17 +8,17 @@ from discord.ext import commands
 
 HELP_PAGES = {
     "overview": {
-        "title": "Help",
+        "title": "<:map:1493499403745362080> Help",
         "description": "Pick a category from the dropdown below. Prefix commands use `;` or `&`.",
         "fields": [
-            ("Core", "`/balance` `/eco ...` `/inventory` `/shop ...` `/level ...` `/quests ...` `/achievements ...`"),
-            ("Games", "`/balance` `/eco richest` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`"),
+            ("Core", "`/balance` `/deposit` `/withdraw` `/daily` `/weekly` `/work` `/crime` `/shop` `/buy` `/inventory` `/daily_quests` `/weekly_quests` `/achievements`"),
+            ("Games", "`/balance` `/richest` `/poker ...` `/blackjack play` `/roulette ...` `/slots ...`"),
             ("Tools", "`/calc` `/help` `/slowmode`"),
             ("Other", "`/stats ...` `/ai ...` `/register` `/staffprofile ...` `/admin ...`"),
         ],
     },
     "calculator": {
-        "title": "Help - Calculator",
+        "title": "<:cpu:1493499407075770538> Help - Calculator",
         "description": "Run one equation once, then use buttons to switch between operations.",
         "fields": [
             ("Command", "`/calc <expression>`"),
@@ -27,24 +27,24 @@ HELP_PAGES = {
         ],
     },
     "economy": {
-        "title": "Help - Economy",
+        "title": "<:dollarsign:1493499405133811786> Help - Economy",
         "description": "Earn, store, and move chips.",
         "fields": [
-            ("Money", "`/balance` `/eco deposit` `/eco withdraw` `/eco transfer`"),
-            ("Grinding", "`/eco daily` `/eco weekly` `/eco work` `/eco crime` `/eco beg`"),
-            ("Extras", "`/eco richest` `/eco effects` `/eco titles` `/eco settitle`"),
+            ("Money", "`/balance` `/deposit` `/withdraw` `/transfer`"),
+            ("Grinding", "`/daily` `/weekly` `/work` `/crime` `/beg`"),
+            ("Extras", "`/richest` `/effects` `/titles` `/settitle`"),
         ],
     },
     "shop": {
-        "title": "Help - Shop",
+        "title": "<:shoppingcart:1493499396677963816> Help - Shop",
         "description": "Buy boosts, utility items, and prestige tools.",
         "fields": [
-            ("Commands", "`/shop browse` `/shop buy` `/shop use` `/inventory`"),
+            ("Commands", "`/shop` `/buy` `/use` `/inventory`"),
             ("Popular Items", "`lucky_charm` `shield` `xp_boost` `multiplier` `vault_key` `prestige_token`"),
         ],
     },
     "leveling": {
-        "title": "Help - Leveling",
+        "title": "<:trendingup:1493499392572002375> Help - Leveling",
         "description": "XP comes from grind commands, quests, and achievements.",
         "fields": [
             ("Commands", "`/level rank` `/level leaderboard` `/level rewards` `/level notifications <enabled>`"),
@@ -53,32 +53,32 @@ HELP_PAGES = {
         ],
     },
     "quests": {
-        "title": "Help - Quests",
+        "title": "<:clipboard:1493499409139503154> Help - Quests",
         "description": "Daily and weekly objectives for extra rewards.",
         "fields": [
-            ("Commands", "`/quests daily` `/quests weekly` `/quests claim`"),
+            ("Commands", "`/daily_quests` `/weekly_quests` `/claim`"),
             ("Resets", "Daily quests reset at midnight UTC. Weekly quests reset every Monday UTC."),
         ],
     },
     "achievements": {
-        "title": "Help - Achievements",
+        "title": "<:award:1493499416231809084> Help - Achievements",
         "description": "Permanent milestones across economy, gambling, and progression.",
         "fields": [
-            ("Commands", "`/achievements list`"),
+            ("Commands", "`/achievements`"),
             ("Rewards", "Achievements can grant chips, XP, and titles."),
         ],
     },
     "games": {
-        "title": "Help - Games",
+        "title": "<:zap:1493499390520852610> Help - Games",
         "description": "Casino-style commands using the shared chip economy.",
         "fields": [
-            ("Essentials", "`/eco daily` `/balance` `/eco richest`"),
+            ("Essentials", "`/daily` `/balance` `/richest`"),
             ("Tables", "`/poker create` `/poker join` `/poker start` `/poker end`"),
             ("Casino", "`/blackjack play` `/roulette spin` `/roulette table` `/slots spin` `/slots paytable` `/bet` `/roll`"),
         ],
     },
     "ai": {
-        "title": "Help - AI",
+        "title": "<:terminal:1493499395017146438> Help - AI",
         "description": "AI chat, allowed-channel setup, and personality controls.",
         "fields": [
             ("Commands", "`/ai channel` `/ai personality` `/ai status`"),
@@ -86,7 +86,7 @@ HELP_PAGES = {
         ],
     },
     "stats": {
-        "title": "Help - Stats",
+        "title": "<:barchart2:1493499414248034304> Help - Stats",
         "description": "Leaderboard and message event tracking commands.",
         "fields": [
             ("Commands", "`/stats leaderboard` `/stats rank` `/messagevent start` `/messagevent time` `/messagevent end`"),
@@ -94,7 +94,7 @@ HELP_PAGES = {
         ],
     },
     "staff": {
-        "title": "Help - Staff",
+        "title": "<:shield:1493499398628442152> Help - Staff",
         "description": "Staff registration, progress, and break management.",
         "fields": [
             ("Commands", "`/register` `/staffprofile view` `/staffprofile edit` `/enterbday` `/weeklyprogress` `/staffprogress` `/sotm`"),
@@ -102,7 +102,7 @@ HELP_PAGES = {
         ],
     },
     "admin": {
-        "title": "Help - Admin",
+        "title": "<:settings:1493499400184660059> Help - Admin",
         "description": "Administrative and moderation tools.",
         "fields": [
             ("Commands", "`/admin resetuser` `/admin resetall` `/admin debug` `/admin echo` `/avatar` `/banner`"),
@@ -114,18 +114,18 @@ HELP_PAGES = {
 
 
 SELECT_OPTIONS = [
-    ("overview",      "Overview",      "Quick command map"),
-    ("calculator",    "Calculator",    "Interactive equation tools"),
-    ("economy",       "Economy",       "Wallet, bank, and grinding"),
-    ("shop",          "Shop",          "Items and inventory"),
-    ("leveling",      "Leveling",      "XP, ranks, and notifications"),
-    ("quests",        "Quests",        "Daily and weekly objectives"),
-    ("achievements",  "Achievements",  "Milestones and rewards"),
-    ("games",         "Games",         "Poker, slots, roulette, blackjack"),
-    ("ai",            "AI",            "AI chat and channel setup"),
-    ("stats",         "Stats",         "Leaderboards and message events"),
-    ("staff",         "Staff",         "Staff tools and progress"),
-    ("admin",         "Admin",         "Moderator and admin tools"),
+    ("overview",      "<:map:1493499403745362080> Overview",        "Quick command map"),
+    ("calculator",    "<:cpu:1493499407075770538> Calculator",      "Interactive equation tools"),
+    ("economy",       "<:dollarsign:1493499405133811786> Economy",  "Wallet, bank, and grinding"),
+    ("shop",          "<:shoppingcart:1493499396677963816> Shop",   "Items and inventory"),
+    ("leveling",      "<:trendingup:1493499392572002375> Leveling", "XP, ranks, and notifications"),
+    ("quests",        "<:clipboard:1493499409139503154> Quests",    "Daily and weekly objectives"),
+    ("achievements",  "<:award:1493499416231809084> Achievements",  "Milestones and rewards"),
+    ("games",         "<:zap:1493499390520852610> Games",           "Poker, slots, roulette, blackjack"),
+    ("ai",            "<:terminal:1493499395017146438> AI",         "AI chat and channel setup"),
+    ("stats",         "<:barchart2:1493499414248034304> Stats",     "Leaderboards and message events"),
+    ("staff",         "<:shield:1493499398628442152> Staff",        "Staff tools and progress"),
+    ("admin",         "<:settings:1493499400184660059> Admin",      "Moderator and admin tools"),
 ]
 
 
