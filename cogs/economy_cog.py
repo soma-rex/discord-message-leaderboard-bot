@@ -105,9 +105,6 @@ class ShopView(discord.ui.View):
 class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     """Full economy system with wallet, bank, jobs, shop, and items."""
 
-    eco_group  = app_commands.Group(name="eco",  description="Economy commands")
-    shop_group = app_commands.Group(name="shop", description="Shop and inventory")
-
     def __init__(self, bot: commands.Bot):
         self.bot    = bot
         self.conn   = bot.conn
@@ -165,7 +162,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # DEPOSIT / WITHDRAW
     # ─────────────────────────────────────────
-    @eco_group.command(name="deposit", description="Deposit chips into your bank")
+    @app_commands.command(name="deposit", description="Deposit chips into your bank")
     @app_commands.describe(amount="Amount to deposit, or 'all'")
     async def deposit(self, interaction: discord.Interaction, amount: str):
         uid    = interaction.user.id
@@ -186,7 +183,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         await interaction.response.send_message(embed=embed)
         await self._update_quest_progress(uid, "deposit", 1)
 
-    @eco_group.command(name="withdraw", description="Withdraw chips from your bank")
+    @app_commands.command(name="withdraw", description="Withdraw chips from your bank")
     @app_commands.describe(amount="Amount to withdraw, or 'all'")
     async def withdraw(self, interaction: discord.Interaction, amount: str):
         uid  = interaction.user.id
@@ -209,7 +206,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # TRANSFER
     # ─────────────────────────────────────────
-    @eco_group.command(name="transfer", description="Send chips to another user (5% fee)")
+    @app_commands.command(name="transfer", description="Send chips to another user (5% fee)")
     @app_commands.describe(user="Who to send to", amount="How many chips")
     async def transfer(self, interaction: discord.Interaction, user: discord.Member, amount: int):
         uid = interaction.user.id
@@ -257,7 +254,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # DAILY
     # ─────────────────────────────────────────
-    @eco_group.command(name="daily", description="Claim your daily chip reward")
+    @app_commands.command(name="daily", description="Claim your daily chip reward")
     async def daily(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self.eco_ensure(uid)
@@ -316,7 +313,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # WEEKLY
     # ─────────────────────────────────────────
-    @eco_group.command(name="weekly", description="Claim your weekly bonus")
+    @app_commands.command(name="weekly", description="Claim your weekly bonus")
     async def weekly(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self.eco_ensure(uid)
@@ -356,7 +353,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # WORK
     # ─────────────────────────────────────────
-    @eco_group.command(name="work", description="Work a shift to earn chips")
+    @app_commands.command(name="work", description="Work a shift to earn chips")
     async def work(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self.eco_ensure(uid)
@@ -398,7 +395,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # CRIME
     # ─────────────────────────────────────────
-    @eco_group.command(name="crime", description="Attempt a risky crime for big rewards")
+    @app_commands.command(name="crime", description="Attempt a risky crime for big rewards")
     async def crime(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self.eco_ensure(uid)
@@ -461,7 +458,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # BEG
     # ─────────────────────────────────────────
-    @eco_group.command(name="beg", description="Beg for some chips")
+    @app_commands.command(name="beg", description="Beg for some chips")
     async def beg(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self.eco_ensure(uid)
@@ -497,13 +494,13 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # SHOP
     # ─────────────────────────────────────────
-    @shop_group.command(name="browse", description="Browse the chip shop")
+    @app_commands.command(name="shop", description="Browse the chip shop")
     async def shop_browse(self, interaction: discord.Interaction):
         view  = ShopView(self, interaction.user.id)
         embed = view.build_embed()
         await interaction.response.send_message(embed=embed, view=view)
 
-    @shop_group.command(name="buy", description="Buy an item from the shop")
+    @app_commands.command(name="buy", description="Buy an item from the shop")
     @app_commands.describe(item_id="Item ID from the shop")
     async def shop_buy(self, interaction: discord.Interaction, item_id: str):
         uid  = interaction.user.id
@@ -530,7 +527,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         await self._notify_level_ups(interaction.user, new_levels)
         await self._update_quest_progress(uid, "buy_item", 1)
 
-    @shop_group.command(name="use", description="Use an item from your inventory")
+    @app_commands.command(name="use", description="Use an item from your inventory")
     @app_commands.describe(item_id="Item ID to use")
     async def shop_use(self, interaction: discord.Interaction, item_id: str):
         uid  = interaction.user.id
@@ -620,7 +617,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # ACTIVE EFFECTS
     # ─────────────────────────────────────────
-    @eco_group.command(name="effects", description="View your active item effects")
+    @app_commands.command(name="effects", description="View your active item effects")
     async def effects(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self.clear_expired_effects(uid)
@@ -653,7 +650,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # RICH LEADERBOARD
     # ─────────────────────────────────────────
-    @eco_group.command(name="richest", description="See the richest users (wallet + bank)")
+    @app_commands.command(name="richest", description="See the richest users (wallet + bank)")
     async def richest(self, interaction: discord.Interaction):
         self.cursor.execute("""
             SELECT p.user_id, p.chips + COALESCE(e.bank, 0) AS total
@@ -683,7 +680,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
     # ─────────────────────────────────────────
     # TITLE
     # ─────────────────────────────────────────
-    @eco_group.command(name="settitle", description="Set your active title")
+    @app_commands.command(name="settitle", description="Set your active title")
     @app_commands.describe(title="The title to display (must be unlocked)")
     async def settitle(self, interaction: discord.Interaction, title: str):
         uid = interaction.user.id
@@ -694,7 +691,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         self.set_active_title(uid, title)
         await interaction.response.send_message(f"Title set to **{title}**!", ephemeral=True)
 
-    @eco_group.command(name="titles", description="View your unlocked titles")
+    @app_commands.command(name="titles", description="View your unlocked titles")
     async def titles(self, interaction: discord.Interaction):
         uid    = interaction.user.id
         titles = self.get_all_titles(uid)

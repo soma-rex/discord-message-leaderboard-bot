@@ -48,7 +48,7 @@ class LeaderboardView(discord.ui.View):
         lines = []
         for index, (user_id, count) in enumerate(self.users[start:end], start=start + 1):
             name = await fetch_display_name(interaction.client, guild, user_id)
-            icon = medals[index - 1] if index <= 3 else "-"
+            icon = medals[index - 1] if index <= 3 else f"`#{index}`"
             lines.append(f"{icon} **{name}** - `{count}` messages")
         embed.description = "\n".join(lines) if lines else "No data."
         total_pages = ((len(self.users) - 1) // self.per_page) + 1
@@ -118,7 +118,7 @@ class StatsCog(commands.Cog, name="Stats"):
         lines = []
         for index, (user_id, count) in enumerate(sorted_users[:10], start=1):
             name = await fetch_display_name(self.bot, interaction.guild, user_id)
-            icon = medals[index - 1] if index <= 3 else "-"
+            icon = medals[index - 1] if index <= 3 else f"`#{index}`"
             lines.append(f"{icon} **{name}** - `{count}` messages")
         embed.description = "\n".join(lines)
 

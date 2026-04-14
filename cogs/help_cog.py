@@ -114,18 +114,18 @@ HELP_PAGES = {
 
 
 SELECT_OPTIONS = [
-    ("overview", "Overview", "Quick command map"),
-    ("calculator", "Calculator", "Interactive equation tools"),
-    ("economy", "Economy", "Wallet, bank, and grinding"),
-    ("shop", "Shop", "Items and inventory"),
-    ("leveling", "Leveling", "XP, ranks, and notifications"),
-    ("quests", "Quests", "Daily and weekly objectives"),
-    ("achievements", "Achievements", "Milestones and rewards"),
-    ("games", "Games", "Poker, slots, roulette, blackjack"),
-    ("ai", "AI", "AI chat and channel setup"),
-    ("stats", "Stats", "Leaderboards and message events"),
-    ("staff", "Staff", "Staff tools and progress"),
-    ("admin", "Admin", "Moderator and admin tools"),
+    ("overview",      "Overview",      "Quick command map"),
+    ("calculator",    "Calculator",    "Interactive equation tools"),
+    ("economy",       "Economy",       "Wallet, bank, and grinding"),
+    ("shop",          "Shop",          "Items and inventory"),
+    ("leveling",      "Leveling",      "XP, ranks, and notifications"),
+    ("quests",        "Quests",        "Daily and weekly objectives"),
+    ("achievements",  "Achievements",  "Milestones and rewards"),
+    ("games",         "Games",         "Poker, slots, roulette, blackjack"),
+    ("ai",            "AI",            "AI chat and channel setup"),
+    ("stats",         "Stats",         "Leaderboards and message events"),
+    ("staff",         "Staff",         "Staff tools and progress"),
+    ("admin",         "Admin",         "Moderator and admin tools"),
 ]
 
 

@@ -66,8 +66,6 @@ def _next_weekly_reset() -> int:
 class QuestsCog(commands.Cog, EconomyMixin, name="Quests"):
     """Daily and weekly quest system."""
 
-    quest_group = app_commands.Group(name="quests", description="Quest and mission commands")
-
     def __init__(self, bot: commands.Bot):
         self.bot    = bot
         self.conn   = bot.conn
@@ -146,7 +144,7 @@ class QuestsCog(commands.Cog, EconomyMixin, name="Quests"):
     # ─────────────────────────────────────────
     # COMMANDS
     # ─────────────────────────────────────────
-    @quest_group.command(name="daily", description="View your daily quests")
+    @app_commands.command(name="daily_quests", description="View your daily quests")
     async def daily_quests(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self._generate_quests(uid)
@@ -181,7 +179,7 @@ class QuestsCog(commands.Cog, EconomyMixin, name="Quests"):
             embed.description = "No quests available. Check back tomorrow!"
         await interaction.response.send_message(embed=embed)
 
-    @quest_group.command(name="weekly", description="View your weekly quests")
+    @app_commands.command(name="weekly_quests", description="View your weekly quests")
     async def weekly_quests(self, interaction: discord.Interaction):
         uid = interaction.user.id
         self._generate_quests(uid)
@@ -213,7 +211,7 @@ class QuestsCog(commands.Cog, EconomyMixin, name="Quests"):
             )
         await interaction.response.send_message(embed=embed)
 
-    @quest_group.command(name="claim", description="Claim rewards for completed quests")
+    @app_commands.command(name="claim", description="Claim rewards for completed quests")
     async def claim_quests(self, interaction: discord.Interaction):
         uid = interaction.user.id
         now = int(time.time())

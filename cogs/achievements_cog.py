@@ -58,8 +58,6 @@ ACHIEVEMENTS: dict[str, dict] = {
 class AchievementsCog(commands.Cog, EconomyMixin, name="Achievements"):
     """Achievement tracking, progress, and rewards."""
 
-    achieve_group = app_commands.Group(name="achievements", description="Achievement commands")
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.conn = bot.conn
@@ -176,7 +174,7 @@ class AchievementsCog(commands.Cog, EconomyMixin, name="Achievements"):
         )
         self.conn.commit()
 
-    @achieve_group.command(name="list", description="View all achievements and your progress")
+    @app_commands.command(name="achievements", description="View all achievements and your progress")
     async def ach_list(self, interaction: discord.Interaction, user: discord.Member | None = None):
         target = user or interaction.user
         self.cursor.execute(

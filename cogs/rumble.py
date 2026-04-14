@@ -224,16 +224,10 @@ def build_tracking_started_embed() -> discord.Embed:
     )
 
 
-def build_tracking_ended_embed(host_mention: str | None = None) -> discord.Embed:
-    description = "🏁 The rumble has ended."
+def build_tracking_ended_message(host_mention: str | None = None) -> str:
     if host_mention:
-        description = f"{host_mention}, the rumble has ended. <:rumble:1486707784450969700>"
-
-    return discord.Embed(
-        title="Rumble Tracker",
-        description=description,
-        color=discord.Color.dark_grey(),
-    )
+        return f"{host_mention} the rumble has ended. <:rumble:1486707784450969700>"
+    return "The rumble has ended. <:rumble:1486707784450969700>"
 
 
 class AliveView(discord.ui.View):
@@ -423,10 +417,7 @@ class RumbleCog(commands.Cog, name="Rumble"):
                         host_mention = member.mention
                         break
 
-            if host_mention:
-                await message.channel.send(embed=build_tracking_ended_embed(host_mention))
-            else:
-                await message.channel.send(embed=build_tracking_ended_embed())
+            await message.channel.send(build_tracking_ended_message(host_mention))
 
 
 async def setup(bot: commands.Bot):
