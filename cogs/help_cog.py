@@ -107,7 +107,7 @@ HELP_PAGES = {
         "fields": [
             ("Commands", "`/admin resetuser` `/admin resetall` `/admin debug` `/admin echo` `/avatar` `/banner`"),
             ("Channel Tools", "`/slowmode` `/slowmodeaccess add` `/slowmodeaccess remove` `/slowmodeaccess list`"),
-            ("Poker Admin", "`/poker setchips` `/poker end`"),
+            ("Poker Admin", "`/setchips` `/poker end`"),
         ],
     },
 }

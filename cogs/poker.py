@@ -1683,9 +1683,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         await interaction.response.send_message("Poker table started. First round is starting now.")
         await self._start_next_hand(interaction.channel.id)
 
-    @poker_group.command(name="setchips", description="Add or remove chips (owner only)")
-    @app_commands.check(is_owner)
-    async def poker_setchips(self, interaction: discord.Interaction, user: discord.Member, amount: int):
+    async def _setchips_impl(self, interaction: discord.Interaction, user: discord.Member, amount: int):
         self.ensure_chips(user.id)
         self.cursor.execute("UPDATE poker_chips SET chips = chips + ? WHERE user_id = ?", (amount, user.id))
         self.conn.commit()
@@ -1702,7 +1700,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     @app_commands.command(name="setchips", description="Add or remove chips (owner only)")
     @app_commands.check(is_owner)
     async def setchips(self, interaction: discord.Interaction, user: discord.Member, amount: int):
-        await self.poker_setchips.callback(self, interaction, user, amount)
+        await self._setchips_impl(interaction, user, amount)
 
     @app_commands.command(name="wipe", description="Wipe a user's chips and inventory (owner only)")
     @app_commands.check(is_owner)

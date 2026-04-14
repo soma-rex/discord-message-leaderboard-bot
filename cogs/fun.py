@@ -135,6 +135,9 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             del self.bombed_users[user_id]
         return False
 
+    async def _bomb_user(self, target: discord.abc.User, *, duration: int) -> None:
+        self.bombed_users[target.id] = time.time() + duration
+
     # ─────────────────────────────────────────
     # PREFIX COMMANDS
     # ─────────────────────────────────────────
@@ -155,7 +158,7 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             await ctx.send("<a:dead:1486706627376713829> You are bombed, you can't use this command.")
             return
         duration = random.randint(10, 45)
-        self.bombed_users[member.id] = time.time() + duration
+        await self._bomb_user(member, duration=duration)
         await ctx.send(f"<:bomb:1486706629201363054> {member.mention} has been bombed for **{duration} seconds**!")
 
     @commands.command(name="bombset")
@@ -167,7 +170,7 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
         if seconds <= 0:
             await ctx.send("Time must be greater than 0.")
             return
-        self.bombed_users[member.id] = time.time() + seconds
+        await self._bomb_user(member, duration=seconds)
         await ctx.send(f"<:bomb:1486706629201363054> {member.mention} has been bombed for **{seconds} seconds**!")
 
     @commands.command(name="defuse")
@@ -395,6 +398,27 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             await interaction.followup.send(f"{user.mention} {roast_text}")
         except Exception as e:
             await interaction.followup.send(f"Error: {e}")
+
+    @app_commands.command(name="bomb", description="Bomb a user for a random duration")
+    async def bomb_slash(self, interaction: discord.Interaction, user: discord.Member):
+        if not any(role.id == BOMB_REQUIRED_ROLE_ID for role in interaction.user.roles):
+            await interaction.response.send_message(
+                "<a:cross:1479904917702578306> You don't have permission to use this command.",
+                ephemeral=True,
+            )
+            return
+        if self.is_bombed(interaction.user.id):
+            await interaction.response.send_message(
+                "<a:dead:1486706627376713829> You are bombed, you can't use this command.",
+                ephemeral=True,
+            )
+            return
+
+        duration = random.randint(10, 45)
+        await self._bomb_user(user, duration=duration)
+        await interaction.response.send_message(
+            f"<:bomb:1486706629201363054> {user.mention} has been bombed for **{duration} seconds**!"
+        )
 
     @app_commands.command(name="lurking", description="Ask who's lurking.")
     async def lurking_slash(self, interaction: discord.Interaction):
