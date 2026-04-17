@@ -39,88 +39,111 @@ DEATH_PATTERNS = (
 
 
 def clean_name(name: str) -> str:
+    """Normalise a name for fuzzy comparison."""
     name = name.replace("\\", "")
     name = name.lower()
+    # strip common title words that rumble appends (e.g. "the Duck", "the Cheater")
     name = re.sub(r"\bthe\b", "", name)
     name = name.strip()
-    name = re.sub(r"[^a-z0-9]", "", name)
+    name = re.sub(r"[^a-z0-9_]", "", name)   # keep underscores – common in usernames
     return name
 
 
-def extract_name_candidates(text: str) -> list[str]:
-    base = strip_formatting(text)
-    candidates = {base}
+# ---------------------------------------------------------------------------
+# Strikethrough extraction  (PRIMARY death signal)
+# ---------------------------------------------------------------------------
 
-    for match in re.findall(r"<@!?(\d+)>", text):
-        candidates.add(match)
+_STRIKETHROUGH_RE = re.compile(r"~~(.+?)~~")
 
-    separators = (
-        " by ",
-        " from ",
-        " with ",
-        " using ",
-        " into ",
-        " off ",
-        " out ",
-        " after ",
-        " before ",
-        " while ",
-        " when ",
-        " and ",
-        " vs ",
-        " versus ",
-    )
 
-    lowered = base.lower()
-    for separator in separators:
-        if separator in lowered:
-            left, _, right = base.partition(separator)
-            candidates.add(left)
-            candidates.add(right)
+def extract_strikethrough_names(line: str) -> list[str]:
+    """Return every ~~stricken~~ fragment from a single line, formatting stripped."""
+    results = []
+    for raw in _STRIKETHROUGH_RE.findall(line):
+        cleaned = strip_formatting(raw).strip()
+        if cleaned:
+            results.append(cleaned)
+    return results
 
-    for piece in re.split(r"[,:;.!?\-\(\)\[\]\{\}\n]+", base):
-        piece = piece.strip()
-        if piece:
-            candidates.add(piece)
 
-    return [candidate.strip() for candidate in candidates if candidate.strip()]
+# ---------------------------------------------------------------------------
+# Name matching  (strikethrough-first, then conservative text patterns)
+# ---------------------------------------------------------------------------
+
+MIN_MATCH_LEN = 3   # ignore names shorter than this to avoid false positives
+
+
+def _name_variants(name: str) -> set[str]:
+    """Build normalised variants of a single alias."""
+    base = clean_name(name)
+    variants = {base}
+    # also try without leading/trailing underscores
+    variants.add(base.strip("_"))
+    return {v for v in variants if len(v) >= MIN_MATCH_LEN}
 
 
 def is_match(user_names: list[str], target_text: str) -> bool:
-    target_variants = {clean_name(target_text)}
-    for candidate in extract_name_candidates(target_text):
-        target_variants.add(clean_name(candidate))
+    """
+    Return True only when we are *confident* the target_text refers to one of
+    the user's known aliases.
 
-    target_variants = {variant for variant in target_variants if variant}
+    Rules (in priority order):
+      1. Exact normalised match.
+      2. The user's alias is a *word-boundary-aligned* substring of the target
+         (guards against matching "al" inside "angelmalhotra" etc.).
+
+    Substring-in-target is intentionally kept but now requires a word boundary
+    on both ends so short common words don't trigger false positives.
+    """
+    target_clean = clean_name(target_text)
+    if not target_clean:
+        return False
 
     for user_name in user_names:
-        user_clean = clean_name(user_name)
-        if not user_clean:
-            continue
-        for target_clean in target_variants:
-            if user_clean == target_clean:
+        for variant in _name_variants(user_name):
+            if not variant:
+                continue
+            # 1. Exact match
+            if variant == target_clean:
                 return True
-            if len(user_clean) > 2 and user_clean in target_clean:
-                return True
-            if len(target_clean) > 2 and target_clean in user_clean:
+            # 2. Whole-token substring match – variant must start/end on a
+            #    non-alphanumeric boundary inside the cleaned target string.
+            pattern = r"(?<![a-z0-9])" + re.escape(variant) + r"(?![a-z0-9])"
+            if re.search(pattern, target_clean):
                 return True
     return False
 
 
 def extract_death_target(line: str) -> str | None:
+    """
+    PRIMARY: return the first ~~stricken~~ name on the line.
+    FALLBACK (only when no strikethrough found): use conservative verb patterns.
+
+    We intentionally do NOT fall back to the broad DEATH_PATTERNS when there
+    is no strikethrough, because those patterns fire on many non-death sentences
+    (e.g. "... fell into the trap" mid-sentence about a *survivor*).
+    """
+    # Primary: strikethrough is the canonical death marker
+    stricken = extract_strikethrough_names(line)
+    if stricken:
+        return stricken[0]   # first stricken name on this line
+
+    # Fallback: only fire when we also see a clear death verb AND there is no
+    # conflicting revive marker on the same line.
+    if any(marker in line for marker in REVIVE_EMOJI_MARKERS):
+        return None   # revive line – don't call it a death
+
     stripped = strip_formatting(line)
-
-    for raw in re.findall(r"~~(.*?)~~", line):
-        cleaned = strip_formatting(raw)
-        if cleaned:
-            return cleaned
-
     lowered = stripped.lower()
     for pattern in DEATH_PATTERNS:
         match = re.search(pattern, lowered)
         if match:
-            end = match.end("name")
-            return stripped[:end].strip(" :-")
+            end = match.end("n")
+            candidate = stripped[:end].strip(" :-")
+            # Only trust the fallback if the extracted name is reasonably long
+            # (avoids matching single words like "he" or "she")
+            if len(clean_name(candidate)) >= MIN_MATCH_LEN:
+                return candidate
 
     return None
 
@@ -173,7 +196,7 @@ def build_status_message(data: dict) -> str:
             )
         return "<a:check:1479904904205041694> You are still alive!"
 
-    lines = ["<a:dead:1486706627376713829> You died."]
+    lines = ["<a:sadguitar:1494215969709752430> You died."]
     if data["death_msg"]:
         lines.append(f"🔗 Death: {data['death_msg']}")
     if data["revive_msg"]:
@@ -196,7 +219,7 @@ def build_status_embed(data: dict) -> discord.Embed:
 
     embed = discord.Embed(
         title="Rumble Status",
-        description="<a:dead:1486706627376713829> You are out.",
+        description="<a:sadguitar:1494215969709752430> You are out.",
         color=discord.Color.red(),
     )
     if data["death_msg"]:

@@ -64,27 +64,12 @@ TABLE_PRESETS = {
 }
 
 TURN_TIMEOUT_SECONDS = 300
-BOT_PLAYER_ID = -999999
 INACTIVITY_TIMEOUT_SECONDS = 1800
 HAND_START_DELAY_SECONDS = 15
-BOT_DISPLAY_NAME = "🤖 Poker Bot"
 
 
 def is_owner(interaction: discord.Interaction) -> bool:
     return interaction.user.id == 720550790036455444
-
-
-async def fetch_display_name(client: discord.Client, guild, user_id: int) -> str:
-    if user_id == BOT_PLAYER_ID:
-        return BOT_DISPLAY_NAME
-    member = guild.get_member(user_id) if guild else None
-    if member:
-        return member.display_name
-    try:
-        user = await client.fetch_user(user_id)
-    except discord.DiscordException:
-        return f"User {user_id}"
-    return user.name
 
 
 def build_deck() -> list[str]:
@@ -164,7 +149,7 @@ def hand_name(score: tuple) -> str:
 
 
 def player_label(user_id: int) -> str:
-    return BOT_DISPLAY_NAME if user_id == BOT_PLAYER_ID else f"<@{user_id}>"
+    return f"<@{user_id}>"
 
 
 def build_side_pots(game: dict) -> list[dict]:
@@ -200,129 +185,6 @@ def blind_amounts(game: dict) -> tuple[int, int]:
     return small_blind, big_blind
 
 
-def calculate_hand_strength(hole_cards: list[str], community: list[str]) -> float:
-    """Calculate a rough hand strength score from 0.0 to 1.0."""
-    visible_cards = hole_cards + community
-    if len(visible_cards) < 2:
-        return 0.0
-
-    if len(visible_cards) < 5:
-        ranks = [RANK_VALUE[card_rank(card)] for card in hole_cards]
-        pair = len(hole_cards) == 2 and card_rank(hole_cards[0]) == card_rank(hole_cards[1])
-        suited = len(hole_cards) == 2 and card_suit(hole_cards[0]) == card_suit(hole_cards[1])
-        connected = len(hole_cards) == 2 and abs(ranks[0] - ranks[1]) <= 1
-        strength = 0.2 + (max(ranks) / 20)
-        if pair:
-            strength += 0.25
-        if suited:
-            strength += 0.08
-        if connected:
-            strength += 0.05
-        return min(strength, 0.75)
-
-    score = evaluate_hand(visible_cards)
-    hand_rank = score[0]
-    strength_map = {
-        8: 0.99,
-        7: 0.95,
-        6: 0.85,
-        5: 0.75,
-        4: 0.65,
-        3: 0.55,
-        2: 0.45,
-        1: 0.35,
-        0: 0.15,
-    }
-    base_strength = strength_map.get(hand_rank, 0.1)
-    if hand_rank <= 1:
-        kickers = score[1]
-        if kickers and max(kickers) >= 12:
-            base_strength += 0.1
-    return min(base_strength, 1.0)
-
-
-def calculate_pot_odds(to_call: int, current_pot: int) -> float:
-    if to_call <= 0:
-        return 0.0
-    total_pot = current_pot + to_call
-    return to_call / total_pot if total_pot > 0 else 0.0
-
-
-def bot_make_decision(game: dict, player: dict, hand_strength: float) -> tuple[str, int]:
-    """Return (action, amount) where action is fold, call, raise, or all_in."""
-    to_call = max(0, game["current_bet"] - player["bet"])
-    stack = player["stack"]
-    pot = game["pot"]
-    phase = game["phase"]
-
-    bluff_chance = random.random()
-    cautious_factor = random.uniform(0.9, 1.1)
-    hand_strength *= cautious_factor
-    pot_odds = calculate_pot_odds(to_call, pot) if to_call > 0 else 0.0
-
-    if phase == "preflop":
-        hand_strength *= 0.9
-
-    if to_call == 0:
-        if hand_strength > 0.7 and random.random() < 0.7:
-            raise_by = min(int(max(pot, game["buy_in"] // 10) * random.uniform(0.5, 0.8)), stack)
-            raise_cap = game.get("raise_cap")
-            if raise_cap is not None:
-                raise_by = min(raise_by, raise_cap)
-            if raise_by >= max(1, game["buy_in"] // 20):
-                return "raise", raise_by
-        return "call", 0
-
-    if hand_strength < 0.25:
-        if bluff_chance < 0.05 and stack > to_call * 3:
-            raise_by = min(int(to_call * random.uniform(2, 3)), stack)
-            raise_cap = game.get("raise_cap")
-            if raise_cap is not None:
-                raise_by = min(raise_by, raise_cap)
-            return "raise", max(raise_by, 1)
-        return "fold", 0
-
-    if hand_strength < 0.45:
-        if pot_odds > 0.3:
-            return "fold", 0
-        if to_call < stack * 0.1:
-            return "call", to_call
-        return "fold", 0
-
-    if hand_strength < 0.65:
-        if random.random() < 0.2 and stack > to_call * 2:
-            raise_by = min(int(max(pot, to_call) * random.uniform(0.4, 0.7)), stack)
-            raise_cap = game.get("raise_cap")
-            if raise_cap is not None:
-                raise_by = min(raise_by, raise_cap)
-            if raise_by >= max(1, game["buy_in"] // 20):
-                return "raise", raise_by
-        return "call", to_call
-
-    if hand_strength < 0.85:
-        if random.random() < 0.7:
-            raise_by = min(int(max(pot, to_call) * random.uniform(0.6, 1.0)), stack)
-            raise_cap = game.get("raise_cap")
-            if raise_cap is not None:
-                raise_by = min(raise_by, raise_cap)
-            if raise_by >= max(1, game["buy_in"] // 20):
-                return "raise", raise_by
-        return "call", to_call
-
-    if stack <= max(1, int(to_call * 1.5)):
-        return "all_in", stack
-
-    if random.random() < 0.85:
-        raise_by = min(int(max(pot, to_call) * random.uniform(0.8, 1.5)), stack)
-        raise_cap = game.get("raise_cap")
-        if raise_cap is not None:
-            raise_by = min(raise_by, raise_cap)
-        if raise_by >= max(1, game["buy_in"] // 20):
-            return "raise", raise_by
-
-    return "call", to_call
-
-
 def build_waiting_embed(game: dict) -> discord.Embed:
     raise_cap = game["raise_cap"]
     raise_cap_text = f"**{raise_cap}** {CHIP_EMOJI}" if raise_cap is not None else "**No cap**"
@@ -352,7 +214,6 @@ def build_waiting_embed(game: dict) -> discord.Embed:
 
 
 def build_game_embed(game: dict) -> discord.Embed:
-    phase = game["phase"].title()
     current_uid = game["player_order"][game["turn_index"]]
     board = format_cards(game["visible_community"]) if game["visible_community"] else "*(cards hidden)*"
     embed = discord.Embed(
@@ -365,7 +226,7 @@ def build_game_embed(game: dict) -> discord.Embed:
     embed.add_field(name="Board", value=board, inline=False)
     embed.add_field(name="Pot", value=f"**{game['pot']}** {CHIP_EMOJI}", inline=True)
     embed.add_field(name="Current bet", value=f"**{game['current_bet']}**", inline=True)
-    embed.add_field(name="Phase", value=phase, inline=True)
+    embed.add_field(name="Phase", value=game["phase"].title(), inline=True)
     embed.set_footer(text="Hands continue automatically. Press Players to see stacks and status.")
     return embed
 
@@ -415,13 +276,6 @@ class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
         required=True,
         max_length=6,
     )
-    add_bot = discord.ui.TextInput(
-        label="Add AI Bot? (yes/no)",
-        placeholder="Type 'yes' to add a bot player",
-        required=False,
-        max_length=3,
-        default="no",
-    )
 
     def __init__(self, cog: "PokerCog"):
         super().__init__()
@@ -439,7 +293,6 @@ class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
         if buy_in <= 0 or raise_cap <= 0:
             await interaction.response.send_message("Buy-in and raise cap must be greater than 0.", ephemeral=True)
             return
-        add_bot = self.add_bot.value.strip().lower() == "yes"
 
         await self.cog._open_table(
             interaction,
@@ -447,7 +300,6 @@ class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
             table_name=TABLE_PRESETS["custom"]["name"],
             buy_in=buy_in,
             raise_cap=raise_cap,
-            add_bot=add_bot,
         )
 
 
@@ -503,8 +355,7 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
         player["acted"] = True
 
         for user_id, other in game["players"].items():
-            if user_id != interaction.user.id and other["in_current_hand"] and not other["folded"] and not other[
-                "all_in"]:
+            if user_id != interaction.user.id and other["in_current_hand"] and not other["folded"] and not other["all_in"]:
                 other["acted"] = False
 
         self.view._advance_turn_index(game)
@@ -513,8 +364,6 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
                                          f"raised by **{raise_by}** to **{target}**.")
         await self.view.resolve_turn(interaction.channel)
 
-
-# ... (keeping all imports and earlier code the same until the PokerBetView class) ...
 
 class PokerBetView(discord.ui.View):
     def __init__(self, channel_id: int, cog: "PokerCog", *, hand_number: int, expected_user_id: int):
@@ -593,8 +442,7 @@ class PokerBetView(discord.ui.View):
         )
         await self.resolve_turn(channel)
 
-    async def _announce_action(self, channel: discord.TextChannel, user: discord.Member, action: str):
-        """Send action announcement message."""
+    async def _announce_action(self, channel, user: discord.Member, action: str):
         await channel.send(
             embed=discord.Embed(
                 description=f"**{user.display_name}** {action}",
@@ -602,11 +450,10 @@ class PokerBetView(discord.ui.View):
             )
         )
 
-    async def _send_game_update(self, channel: discord.TextChannel, game: dict, next_user_id: int):
-        """Send updated game embed with next player pinged."""
+    async def _send_game_update(self, channel, game: dict, next_user_id: int):
         await self.cog._send_turn_prompt(channel, game, next_user_id)
 
-    async def advance_phase(self, channel: discord.TextChannel):
+    async def advance_phase(self, channel):
         game = self.get_game()
         if not game or not game["hand_active"]:
             return
@@ -646,15 +493,12 @@ class PokerBetView(discord.ui.View):
         game["turn_index"] = game["player_order"].index(can_act[0])
         await self._send_game_update(channel, game, can_act[0])
 
-    async def resolve_turn(self, channel: discord.TextChannel):
+    async def resolve_turn(self, channel):
         game = self.get_game()
         if not game or not game["hand_active"]:
             return
 
         current_uid = game["player_order"][game["turn_index"]]
-        if current_uid == BOT_PLAYER_ID:
-            await self.cog._handle_bot_turn(channel, game)
-            return
 
         alive = [
             user_id
@@ -698,12 +542,10 @@ class PokerBetView(discord.ui.View):
         if error:
             await interaction.response.send_message(error, ephemeral=True)
             return
-
         self.cog._touch_game(game)
         player["folded"] = True
         player["acted"] = True
         self._advance_turn_index(game)
-
         await interaction.response.send_message("You folded.", ephemeral=True)
         await self._announce_action(interaction.channel, interaction.user, "folded.")
         await self.resolve_turn(interaction.channel)
@@ -715,14 +557,11 @@ class PokerBetView(discord.ui.View):
             await interaction.response.send_message(error, ephemeral=True)
             return
         if player["bet"] != game["current_bet"]:
-            await interaction.response.send_message("You can't check while you're behind the current bet.",
-                                                    ephemeral=True)
+            await interaction.response.send_message("You can't check while behind the current bet.", ephemeral=True)
             return
-
         self.cog._touch_game(game)
         player["acted"] = True
         self._advance_turn_index(game)
-
         await interaction.response.send_message("Checked.", ephemeral=True)
         await self._announce_action(interaction.channel, interaction.user, "checked.")
         await self.resolve_turn(interaction.channel)
@@ -737,19 +576,16 @@ class PokerBetView(discord.ui.View):
         if amount <= 0:
             await interaction.response.send_message("Nothing to call. Use Check.", ephemeral=True)
             return
-
         self.cog._touch_game(game)
         if player["stack"] <= amount:
             amount = player["stack"]
             player["all_in"] = True
-
         player["stack"] -= amount
         player["bet"] += amount
         player["total_chip_in"] += amount
         game["pot"] += amount
         player["acted"] = True
         self._advance_turn_index(game)
-
         suffix = " and is now all-in" if player["all_in"] else ""
         await interaction.response.send_message(f"Called **{amount}**{suffix}.", ephemeral=True)
         await self._announce_action(interaction.channel, interaction.user, f"called **{amount}**{suffix}.")
@@ -772,7 +608,6 @@ class PokerBetView(discord.ui.View):
         if player["stack"] <= 0:
             await interaction.response.send_message("You have no chips left at the table.", ephemeral=True)
             return
-
         self.cog._touch_game(game)
         chips = player["stack"]
         player["stack"] = 0
@@ -781,25 +616,17 @@ class PokerBetView(discord.ui.View):
         game["pot"] += chips
         player["all_in"] = True
         player["acted"] = True
-
         if player["bet"] > game["current_bet"]:
             game["current_bet"] = player["bet"]
             for user_id, other in game["players"].items():
-                if user_id != interaction.user.id and other["in_current_hand"] and not other["folded"] and not other[
-                    "all_in"]:
+                if user_id != interaction.user.id and other["in_current_hand"] and not other["folded"] and not other["all_in"]:
                     other["acted"] = False
-
         self._advance_turn_index(game)
-
         await interaction.response.send_message(
-            f"All-in with **{chips}** chips. Your total bet is now **{player['bet']}**.",
-            ephemeral=True,
-        )
+            f"All-in with **{chips}** chips. Your total bet is now **{player['bet']}**.", ephemeral=True)
         await self._announce_action(
-            interaction.channel,
-            interaction.user,
-            f"went all-in with **{chips}** chips. Total bet: **{player['bet']}**.",
-        )
+            interaction.channel, interaction.user,
+            f"went all-in with **{chips}** chips. Total bet: **{player['bet']}**.")
         await self.resolve_turn(interaction.channel)
 
     @discord.ui.button(label="Players", style=discord.ButtonStyle.secondary, row=1)
@@ -820,8 +647,6 @@ class PokerBetView(discord.ui.View):
 
 
 class PokerTableView(discord.ui.View):
-    """View shown while the poker table is open (waiting room / between hands)."""
-
     def __init__(self, channel_id: int, cog: "PokerCog"):
         super().__init__(timeout=600)
         self.channel_id = channel_id
@@ -836,38 +661,6 @@ class PokerTableView(discord.ui.View):
         await self.cog.leave_table(interaction)
 
 
-class AddBotView(discord.ui.View):
-    def __init__(self, cog: "PokerCog", table_key: str, preset: dict):
-        super().__init__(timeout=60)
-        self.cog = cog
-        self.table_key = table_key
-        self.preset = preset
-
-    @discord.ui.button(label="With Bot", style=discord.ButtonStyle.success, emoji="🤖")
-    async def with_bot(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog._open_table(
-            interaction,
-            table_key=self.table_key,
-            table_name=self.preset["name"],
-            buy_in=self.preset["buy_in"],
-            raise_cap=self.preset["raise_cap"],
-            add_bot=True,
-        )
-        self.stop()
-
-    @discord.ui.button(label="Without Bot", style=discord.ButtonStyle.secondary)
-    async def without_bot(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog._open_table(
-            interaction,
-            table_key=self.table_key,
-            table_name=self.preset["name"],
-            buy_in=self.preset["buy_in"],
-            raise_cap=self.preset["raise_cap"],
-            add_bot=False,
-        )
-        self.stop()
-
-
 class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
     """Texas Hold'em poker tables that continue until the table ends."""
 
@@ -878,7 +671,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         self.poker_games: dict[int, dict] = {}
         self.conn = bot.conn
         self.cursor = bot.cursor
-        # Ensure database table exists on initialization
         try:
             self._ensure_chip_table()
         except Exception as e:
@@ -893,9 +685,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             pending_start_task = game.get("pending_start_task")
             if pending_start_task:
                 pending_start_task.cancel()
-
-    def _ensure_table(self):
-        self._ensure_chip_table()
 
     def _touch_game(self, game: dict) -> None:
         game["last_activity"] = time.time()
@@ -941,14 +730,11 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             await interaction.response.send_message("No poker table exists here.", ephemeral=True)
             return
 
-        # Ensure user has chip record before proceeding
         try:
             self.ensure_chips(interaction.user.id)
         except Exception as e:
             await interaction.response.send_message(
-                f"Error accessing chip balance. Please try again. Error: {str(e)}",
-                ephemeral=True
-            )
+                f"Error accessing chip balance. Please try again. Error: {str(e)}", ephemeral=True)
             return
 
         player = game["players"].get(interaction.user.id)
@@ -962,19 +748,14 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if current_chips < buy_in:
             await interaction.response.send_message(
                 f"You need **{buy_in}** {CHIP_EMOJI} to buy in. You have **{current_chips}** {CHIP_EMOJI}.",
-                ephemeral=True
-            )
+                ephemeral=True)
             return
 
-        # Remove chips with explicit check
         if not self.remove_chips(interaction.user.id, buy_in):
             await interaction.response.send_message(
-                f"Failed to deduct chips. You need **{buy_in}** {CHIP_EMOJI} to buy in.",
-                ephemeral=True
-            )
+                f"Failed to deduct chips. You need **{buy_in}** {CHIP_EMOJI} to buy in.", ephemeral=True)
             return
 
-        # Add player to game
         if player:
             player["stack"] += buy_in
             player["leaving_after_hand"] = False
@@ -988,9 +769,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             embed=discord.Embed(
                 description=f"{interaction.user.mention} bought in for **{buy_in}** {CHIP_EMOJI} and {status}.",
                 color=discord.Color.green(),
-            ),
-            ephemeral=True,
-        )
+            ), ephemeral=True)
         await interaction.channel.send(
             embed=discord.Embed(
                 description=f"{interaction.user.mention} bought in for **{buy_in}** {CHIP_EMOJI} and {status}.",
@@ -999,7 +778,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             view=PokerTableView(interaction.channel.id, self),
         )
 
-        # Queue next hand if conditions are met
         if game["started"] and not game["hand_active"] and len(eligible_table_players(game)) >= 2:
             await self._queue_next_hand(interaction.channel.id, delay=HAND_START_DELAY_SECONDS)
 
@@ -1019,9 +797,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         embed.add_field(name="Board", value=format_cards(game["visible_community"]) or "*(cards hidden)*", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    async def _member_name(self, channel: discord.TextChannel, user_id: int) -> str:
-        if user_id == BOT_PLAYER_ID:
-            return BOT_DISPLAY_NAME
+    async def _member_name(self, channel, user_id: int) -> str:
         try:
             member = await channel.guild.fetch_member(user_id)
             return member.display_name
@@ -1048,7 +824,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 return
             if time.time() - game["last_activity"] < INACTIVITY_TIMEOUT_SECONDS:
                 continue
-            await self._close_table(channel_id, "Table closed after 30 minutes with no hands or actions.")
+            await self._close_table(channel_id, "Table closed after 30 minutes with no activity.")
             return
 
     def _cancel_pending_start(self, game: dict) -> None:
@@ -1080,7 +856,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             if not player or not player.get("leaving_after_hand"):
                 continue
             refund = player["stack"]
-            if refund > 0 and user_id != BOT_PLAYER_ID:
+            if refund > 0:
                 self.add_chips(user_id, refund)
             departures.append((user_id, refund))
             self._remove_player_from_table(game, user_id)
@@ -1095,8 +871,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                     title="Player left the table",
                     description="\n".join(lines),
                     color=discord.Color.orange(),
-                )
-            )
+                ))
 
     async def _disable_action_view(self, game: dict) -> None:
         message = game.get("action_message")
@@ -1108,20 +883,13 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             pass
         game["action_message"] = None
 
-    async def _send_turn_prompt(self, channel: discord.TextChannel, game: dict, mention_user_id: int) -> None:
-        if mention_user_id == BOT_PLAYER_ID:
-            await self._disable_action_view(game)
-            await self._handle_bot_turn(channel, game)
-            return
-
+    async def _send_turn_prompt(self, channel, game: dict, mention_user_id: int) -> None:
         await self._disable_action_view(game)
         view = PokerBetView(
-            channel.id,
-            self,
+            channel.id, self,
             hand_number=game["hand_number"],
             expected_user_id=mention_user_id,
         )
-
         message = await channel.send(
             f"{DICE_EMOJI} {player_label(mention_user_id)}",
             embed=build_game_embed(game),
@@ -1129,19 +897,16 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         )
         game["action_message"] = message
 
-    async def _cash_out_round_players(self, channel: discord.TextChannel, game: dict) -> bool:
-        """Cash out players who are busted (stack = 0) or leaving after this hand."""
+    async def _cash_out_round_players(self, channel, game: dict) -> bool:
         departures = []
         for user_id in list(game["seating_order"]):
             player = game["players"].get(user_id)
             if not player:
                 continue
-
-            # Only cash out if player is busted OR marked as leaving
             if player["stack"] <= 0 or player.get("leaving_after_hand"):
                 refund = player["stack"]
                 reason = "left the table" if player.get("leaving_after_hand") else "was eliminated"
-                if refund > 0 and user_id != BOT_PLAYER_ID:
+                if refund > 0:
                     self.add_chips(user_id, refund)
                     reason = f"cashed out **{refund}** {CHIP_EMOJI}"
                 departures.append((user_id, reason))
@@ -1159,7 +924,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 view=PokerTableView(channel.id, self),
             )
             return True
-
         return False
 
     async def _queue_next_hand(self, channel_id: int, delay: int = HAND_START_DELAY_SECONDS) -> None:
@@ -1170,9 +934,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             return
         if game.get("pending_start_task"):
             return
-        print(f"[Poker] Queuing next hand in channel {channel_id} (delay={delay}s)")
-        game["next_hand_starts_at"] = time.time() + delay
 
+        game["next_hand_starts_at"] = time.time() + delay
         channel = await self._get_channel(channel_id)
         if channel is not None:
             await channel.send(
@@ -1246,9 +1009,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         refunds = []
         for user_id, player in game["players"].items():
             if player["stack"] > 0:
-                if user_id != BOT_PLAYER_ID:
-                    self.add_chips(user_id, player["stack"])
-                    refunds.append((user_id, player["stack"]))
+                self.add_chips(user_id, player["stack"])
+                refunds.append((user_id, player["stack"]))
                 player["stack"] = 0
 
         del self.poker_games[channel_id]
@@ -1269,8 +1031,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
                 title="Poker table ended",
                 description="\n\n".join(description_lines),
                 color=discord.Color.red(),
-            )
-        )
+            ))
 
     async def _open_table(
             self,
@@ -1280,7 +1041,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             table_name: str,
             buy_in: int,
             raise_cap: int | None,
-            add_bot: bool = False,
     ):
         channel_id = interaction.channel.id
         if channel_id in self.poker_games:
@@ -1316,97 +1076,13 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         }
         game["inactivity_task"] = asyncio.create_task(self._monitor_inactivity(channel_id))
         self.poker_games[channel_id] = game
-        if add_bot:
-            game["players"][BOT_PLAYER_ID] = self._create_player_state(buy_in)
-            game["seating_order"].append(BOT_PLAYER_ID)
-        print(f"[Poker] Table '{table_name}' created in channel {channel_id} by user {interaction.user.id}")
-
         await interaction.response.send_message(embed=build_waiting_embed(game), view=PokerTableView(channel_id, self))
-
-    async def _handle_bot_turn(self, channel: discord.TextChannel, game: dict) -> None:
-        if not game["hand_active"]:
-            return
-
-        current_uid = game["player_order"][game["turn_index"]]
-        if current_uid != BOT_PLAYER_ID:
-            return
-
-        await asyncio.sleep(random.uniform(1.5, 3.5))
-
-        player = game["players"][BOT_PLAYER_ID]
-        if player["folded"] or player["all_in"] or not player["in_current_hand"]:
-            return
-
-        self._touch_game(game)
-        hand_strength = calculate_hand_strength(player["cards"], game["visible_community"])
-        action, amount = bot_make_decision(game, player, hand_strength)
-
-        if action == "fold":
-            player["folded"] = True
-            player["acted"] = True
-            self._advance_turn_index(game)
-            await channel.send(f"{BOT_DISPLAY_NAME} folds.")
-        elif action == "call":
-            to_call = max(0, game["current_bet"] - player["bet"])
-            if to_call == 0:
-                player["acted"] = True
-                self._advance_turn_index(game)
-                await channel.send(f"{BOT_DISPLAY_NAME} checks.")
-            else:
-                actual = min(to_call, player["stack"])
-                player["stack"] -= actual
-                player["bet"] += actual
-                player["total_chip_in"] += actual
-                game["pot"] += actual
-                player["acted"] = True
-                if player["stack"] == 0:
-                    player["all_in"] = True
-                self._advance_turn_index(game)
-                suffix = " and is all-in" if player["all_in"] else ""
-                await channel.send(f"{BOT_DISPLAY_NAME} calls **{actual}** {CHIP_EMOJI}{suffix}.")
-        elif action == "raise":
-            to_call = max(0, game["current_bet"] - player["bet"])
-            raise_by = max(1, amount)
-            total_needed = to_call + raise_by
-            actual = min(total_needed, player["stack"])
-            player["stack"] -= actual
-            player["bet"] += actual
-            player["total_chip_in"] += actual
-            game["pot"] += actual
-            player["acted"] = True
-            if player["stack"] == 0:
-                player["all_in"] = True
-            if player["bet"] > game["current_bet"]:
-                game["current_bet"] = player["bet"]
-                for uid, other in game["players"].items():
-                    if uid != BOT_PLAYER_ID and other["in_current_hand"] and not other["folded"] and not other["all_in"]:
-                        other["acted"] = False
-            self._advance_turn_index(game)
-            suffix = " and is all-in" if player["all_in"] else ""
-            await channel.send(f"{BOT_DISPLAY_NAME} raises to **{player['bet']}** {CHIP_EMOJI}{suffix}.")
-        else:
-            chips = player["stack"]
-            player["stack"] = 0
-            player["bet"] += chips
-            player["total_chip_in"] += chips
-            game["pot"] += chips
-            game["current_bet"] = max(game["current_bet"], player["bet"])
-            player["all_in"] = True
-            player["acted"] = True
-            for uid, other in game["players"].items():
-                if uid != BOT_PLAYER_ID and other["in_current_hand"] and not other["folded"] and not other["all_in"]:
-                    other["acted"] = False
-            self._advance_turn_index(game)
-            await channel.send(f"{MONEYBAG_EMOJI} {BOT_DISPLAY_NAME} goes all-in with **{chips}** {CHIP_EMOJI}!")
-
-        await PokerBetView(channel.id, self, hand_number=game["hand_number"], expected_user_id=BOT_PLAYER_ID).resolve_turn(channel)
 
     async def _start_next_hand(self, channel_id: int) -> None:
         game = self.poker_games.get(channel_id)
         if not game or game["ending"] or not game["started"] or game["hand_active"]:
             return
 
-        print(f"[Poker] Starting next hand in channel {channel_id}")
         channel = await self._get_channel(channel_id)
         if channel is None:
             return
@@ -1414,21 +1090,11 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         await self._finalize_pending_leaves(channel, game)
 
         eligible = eligible_table_players(game)
-        if len(eligible) == 0:
+        if len(eligible) < 2:
             await channel.send(
                 embed=discord.Embed(
                     title="Waiting for players",
                     description="At least 2 players need to buy in before the next round can start.",
-                    color=discord.Color.orange(),
-                ),
-                view=PokerTableView(channel_id, self),
-            )
-            return
-        if len(eligible) == 1:
-            await channel.send(
-                embed=discord.Embed(
-                    title="Waiting for one more player",
-                    description="One more player needs to buy in before the next round can start.",
                     color=discord.Color.orange(),
                 ),
                 view=PokerTableView(channel_id, self),
@@ -1443,32 +1109,17 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         game["hand_active"] = True
         game["phase"] = "preflop"
         game["deck"] = build_deck()
-
-        # Ensure we have enough cards
-        if len(game["deck"]) < 5:
-            await channel.send("Error: Not enough cards in deck. Please restart the table.")
-            game["hand_active"] = False
-            return
-
         game["community"] = [game["deck"].pop() for _ in range(5)]
-
-        # Validate seating order exists
-        if not game["seating_order"]:
-            await channel.send("Error: No players in seating order. Please restart the table.")
-            game["hand_active"] = False
-            return
 
         game["dealer_index"] = (game["dealer_index"] + 1) % len(game["seating_order"])
 
         ordered = []
-        if game["seating_order"]:
-            start = game["dealer_index"]
-            for offset in range(len(game["seating_order"])):
-                user_id = game["seating_order"][(start + offset) % len(game["seating_order"])]
-                if user_id in eligible:
-                    ordered.append(user_id)
+        start = game["dealer_index"]
+        for offset in range(len(game["seating_order"])):
+            user_id = game["seating_order"][(start + offset) % len(game["seating_order"])]
+            if user_id in eligible:
+                ordered.append(user_id)
 
-        # Ensure we have valid player order
         if len(ordered) < 2:
             await channel.send("Error: Not enough eligible players. Canceling hand start.")
             game["hand_active"] = False
@@ -1479,11 +1130,6 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
 
         for user_id in game["player_order"]:
             player = game["players"][user_id]
-            # Ensure enough cards for each player
-            if len(game["deck"]) < 2:
-                await channel.send("Error: Not enough cards left in deck.")
-                game["hand_active"] = False
-                return
             player["cards"] = [game["deck"].pop(), game["deck"].pop()]
             player["folded"] = False
             player["bet"] = 0
@@ -1516,9 +1162,8 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         await channel.send("\n".join(intro_lines))
         await self._send_turn_prompt(channel, game, current_uid)
 
-    async def finish_hand(self, channel: discord.TextChannel, game: dict, *, showdown: bool = True) -> None:
+    async def finish_hand(self, channel, game: dict, *, showdown: bool = True) -> None:
         self._touch_game(game)
-        print(f"[Poker] Finishing hand #{game['hand_number']} in channel {channel.id} (showdown={showdown})")
         if showdown:
             game["visible_community"] = game["community"][:]
             pots = build_side_pots(game)
@@ -1605,8 +1250,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             player["leaving_after_hand"] = True
             await interaction.response.send_message(
                 "You'll leave the match when this hand ends. Your remaining stack will be refunded then.",
-                ephemeral=True,
-            )
+                ephemeral=True)
             return
 
         refund = player["stack"]
@@ -1614,9 +1258,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             self.add_chips(interaction.user.id, refund)
         self._remove_player_from_table(game, interaction.user.id)
         await interaction.response.send_message(
-            f"You left the match and were refunded **{refund}** {CHIP_EMOJI}.",
-            ephemeral=True,
-        )
+            f"You left the match and were refunded **{refund}** {CHIP_EMOJI}.", ephemeral=True)
         await interaction.channel.send(
             embed=discord.Embed(
                 description=f"{interaction.user.mention} left the table and was refunded **{refund}** {CHIP_EMOJI}.",
@@ -1643,17 +1285,13 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
         if table.value == "custom":
             await interaction.response.send_modal(CustomTableModal(self))
             return
-        view = AddBotView(self, table.value, preset)
-        embed = discord.Embed(
-            title=f"{DICE_EMOJI} Creating {preset['name']}",
-            description=(
-                "Would you like to add an AI bot player?\n\n"
-                f"Buy-in: **{preset['buy_in']:,}** {CHIP_EMOJI}\n"
-                f"Raise cap: **{preset['raise_cap']:,}** {CHIP_EMOJI}"
-            ),
-            color=discord.Color.blurple(),
+        await self._open_table(
+            interaction,
+            table_key=table.value,
+            table_name=preset["name"],
+            buy_in=preset["buy_in"],
+            raise_cap=preset["raise_cap"],
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @poker_group.command(name="join", description="Buy into the current poker table")
     async def poker_join(self, interaction: discord.Interaction):
@@ -1673,9 +1311,7 @@ class PokerCog(commands.Cog, ChipsMixin, name="Poker"):
             return
         if len(eligible_table_players(game)) < 2:
             await interaction.response.send_message(
-                "You need at least 2 seated players with chips before the match can start.",
-                ephemeral=True,
-            )
+                "You need at least 2 seated players with chips before the match can start.", ephemeral=True)
             return
 
         game["started"] = True

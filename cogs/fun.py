@@ -73,13 +73,9 @@ class BetChoiceView(discord.ui.View):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("This isn't your bet!", ephemeral=True)
             return
-
-        # Disable all buttons
         for item in self.children:
             item.disabled = True
         await interaction.message.edit(view=self)
-
-        # Process the bet
         await self.cog._process_bet(interaction, self.amount, "high")
         self.stop()
 
@@ -88,15 +84,12 @@ class BetChoiceView(discord.ui.View):
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("This isn't your bet!", ephemeral=True)
             return
-
-        # Disable all buttons
         for item in self.children:
             item.disabled = True
         await interaction.message.edit(view=self)
-
-        # Process the bet
         await self.cog._process_bet(interaction, self.amount, "low")
         self.stop()
+
 
 # ─────────────────────────────────────────────
 # COG
@@ -127,7 +120,7 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
         )
         return response.choices[0].message.content
 
-    # ── Bomb state exposed so on_message can read it ──
+    # ── Bomb state ──────────────────────────
     def is_bombed(self, user_id: int) -> bool:
         if user_id in self.bombed_users:
             if time.time() < self.bombed_users[user_id]:
@@ -137,6 +130,17 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
     async def _bomb_user(self, target: discord.abc.User, *, duration: int) -> None:
         self.bombed_users[target.id] = time.time() + duration
+
+    # ── on_message: delete bombed users' messages ──
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot:
+            return
+        if self.is_bombed(message.author.id):
+            try:
+                await message.delete()
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                pass
 
     # ─────────────────────────────────────────
     # PREFIX COMMANDS
@@ -246,14 +250,12 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
     @commands.command(name="roll")
     async def roll_cmd(self, ctx: commands.Context, number: int = 100):
-        """Roll a random number from 1 to the specified number (max 100 million)."""
         if number < 1:
             await ctx.send("The number must be at least 1.")
             return
         if number > 100_000_000:
             await ctx.send("The maximum number you can roll is 100,000,000.")
             return
-
         result = random.randint(1, number)
         embed = discord.Embed(
             title=f"{DICE_EMOJI} Roll",
@@ -265,21 +267,16 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
     @commands.command(name="bet")
     async def bet_cmd(self, ctx: commands.Context, amount: int = None):
-        """Place a bet - you'll be asked to choose high or low."""
         if amount is None:
             await ctx.send("Usage: `;bet <amount>` - Then choose high or low!")
             return
-
         if amount <= 0:
             await ctx.send("Bet must be at least 1 chip.")
             return
-
         balance = self.get_chips(ctx.author.id)
         if balance < amount:
             await ctx.send(f"Not enough chips! You have **{balance:,}** {CHIP_EMOJI} but need **{amount:,}**.")
             return
-
-        # Create view with high/low buttons
         view = BetChoiceView(ctx.author.id, amount, self)
         embed = discord.Embed(
             title=f"{DICE_EMOJI} Choose Your Bet",
@@ -292,17 +289,13 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
     @commands.command(name="bethigh")
     async def bet_high_cmd(self, ctx: commands.Context, amount: int):
-        """Bet on rolling higher than the bot."""
         await self._process_bet(ctx, amount, "high")
 
     @commands.command(name="betlow")
     async def bet_low_cmd(self, ctx: commands.Context, amount: int):
-        """Bet on rolling lower than the bot."""
         await self._process_bet(ctx, amount, "low")
 
     async def _process_bet(self, ctx_or_interaction, amount: int, bet_type: str):
-        """Internal method to process betting logic."""
-        # Handle both context and interaction
         if isinstance(ctx_or_interaction, discord.Interaction):
             user_id = ctx_or_interaction.user.id
             user_name = ctx_or_interaction.user.display_name
@@ -329,7 +322,6 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
                 await ctx_or_interaction.send(msg)
             return
 
-        # Deduct chips
         if not self.remove_chips(user_id, amount):
             msg = "Failed to deduct chips. Please try again."
             if is_interaction:
@@ -338,20 +330,17 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
                 await ctx_or_interaction.send(msg)
             return
 
-        # Roll dice (2 dice each)
         user_roll = random.randint(1, 6) + random.randint(1, 6)
         bot_roll = random.randint(1, 6) + random.randint(1, 6)
 
-        # Determine winner
         if bet_type == "high":
             won = user_roll > bot_roll
             bet_desc = "Bet High (win if higher)"
-        else:  # low
+        else:
             won = user_roll < bot_roll
             bet_desc = "Bet Low (win if lower)"
 
         if won:
-            # Win: get back bet + winnings
             winnings = amount * 2
             self.add_chips(user_id, winnings)
             net_gain = amount
@@ -359,13 +348,11 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             color = discord.Color.green()
             result_text = f"You won **{net_gain:,}** {CHIP_EMOJI}"
         elif user_roll == bot_roll:
-            # Tie: return bet
             self.add_chips(user_id, amount)
             title = "🤝 Tie!"
             color = discord.Color.light_grey()
             result_text = f"Your bet of **{amount:,}** {CHIP_EMOJI} was returned"
         else:
-            # Lose
             title = f"💀 You Lose!"
             color = discord.Color.red()
             result_text = f"You lost **{amount:,}** {CHIP_EMOJI}"
@@ -413,7 +400,6 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
                 ephemeral=True,
             )
             return
-
         duration = random.randint(10, 45)
         await self._bomb_user(user, duration=duration)
         await interaction.response.send_message(
@@ -429,14 +415,12 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
     @app_commands.command(name="roll", description="Roll a random number")
     @app_commands.describe(number="Maximum number to roll (1 to 100 million, default 100)")
     async def roll_slash(self, interaction: discord.Interaction, number: int = 100):
-        """Roll a random number from 1 to the specified number."""
         if number < 1:
             await interaction.response.send_message("The number must be at least 1.", ephemeral=True)
             return
         if number > 100_000_000:
             await interaction.response.send_message("The maximum number you can roll is 100,000,000.", ephemeral=True)
             return
-
         result = random.randint(1, number)
         embed = discord.Embed(
             title=f"{DICE_EMOJI} Roll",
@@ -449,11 +433,9 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
     @app_commands.command(name="bet", description="Bet chips on a dice game - choose high or low")
     @app_commands.describe(amount="Amount of chips to bet")
     async def bet_slash(self, interaction: discord.Interaction, amount: int):
-        """Place a bet - you'll be asked to choose high or low."""
         if amount <= 0:
             await interaction.response.send_message("Bet must be at least 1 chip.", ephemeral=True)
             return
-
         balance = self.get_chips(interaction.user.id)
         if balance < amount:
             await interaction.response.send_message(
@@ -461,8 +443,6 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
                 ephemeral=True
             )
             return
-
-        # Create view with high/low buttons
         view = BetChoiceView(interaction.user.id, amount, self)
         embed = discord.Embed(
             title=f"{DICE_EMOJI} Choose Your Bet",
@@ -476,13 +456,11 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
     @app_commands.command(name="bethigh", description="Bet on rolling higher than the bot")
     @app_commands.describe(amount="Amount of chips to bet")
     async def bethigh_slash(self, interaction: discord.Interaction, amount: int):
-        """Bet on rolling higher than the bot."""
         await self._process_bet(interaction, amount, "high")
 
     @app_commands.command(name="betlow", description="Bet on rolling lower than the bot")
     @app_commands.describe(amount="Amount of chips to bet")
     async def betlow_slash(self, interaction: discord.Interaction, amount: int):
-        """Bet on rolling lower than the bot."""
         await self._process_bet(interaction, amount, "low")
 
 

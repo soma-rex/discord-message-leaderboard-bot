@@ -18,7 +18,7 @@ from .economy_db import (
     CHIP_EMOJI, BANK_EMOJI, WALLET_EMOJI, WORK_EMOJI,
     CRIME_EMOJI, BEG_EMOJI, SHOP_EMOJI, INV_EMOJI,
     GIFT_EMOJI, STREAK_EMOJI, SHIELD_EMOJI, LEVEL_EMOJI,
-    XP_EMOJI, PRESTIGE_EMOJI
+    XP_EMOJI, PRESTIGE_EMOJI, CROWN_EMOJI
 )
 
 DAILY_BASE    = 500
@@ -126,13 +126,6 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         target = user or interaction.user
         wallet = self.get_wallet(target.id)
         bank   = self.get_bank(target.id)
-        xp, level, prestige = self.get_xp_row(target.id)
-        from .economy_db import level_from_xp, xp_for_level
-        _, xp_in_level, xp_needed = level_from_xp(self.get_xp_row(target.id)[0] + sum(
-            __import__('cogs.economy_db', fromlist=['xp_for_level']).xp_for_level(i)
-            for i in range(1, level)
-        ))
-        # Simpler approach
         xp_row = self.get_xp_row(target.id)
         raw_xp, cur_level, cur_prestige = xp_row
         from .economy_db import xp_for_level as xfl
@@ -280,7 +273,6 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         streak = row.get("daily_streak", 0) + 1
         bonus  = min(streak * 50, 500)
         reward = DAILY_BASE + bonus
-        # XP
         new_levels = self.add_xp(uid, 100)
 
         self.cursor.execute(
@@ -307,7 +299,6 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         await self._notify_level_ups(interaction.user, new_levels)
         await self._update_quest_progress(uid, "daily", 1)
         await self._update_quest_progress(uid, "earn", reward)
-        # Check achievements
         await self._check_streak_achievements(interaction, uid, streak)
 
     # ─────────────────────────────────────────
@@ -320,7 +311,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         row = self.get_eco_row(uid)
         now = int(time.time())
         last_weekly = row.get("last_weekly", 0)
-        cooldown = 604800  # 7 days
+        cooldown = 604800
 
         if now - last_weekly < cooldown:
             remaining = cooldown - (now - last_weekly)
@@ -431,11 +422,11 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
                 color=discord.Color.green(),
             )
         else:
-            # Check for shield
             has_shield = self.remove_item(uid, "shield")
             fine = random.randint(fine_low, fine_high)
             wallet = self.get_wallet(uid)
             actual_fine = min(fine, wallet)
+            new_levels = []
             if has_shield:
                 embed = discord.Embed(
                     title=f"{SHIELD_EMOJI} Shielded!",
@@ -450,7 +441,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
                     color=discord.Color.red(),
                 )
         await interaction.response.send_message(embed=embed)
-        await self._notify_level_ups(interaction.user, new_levels if 'new_levels' in locals() else [])
+        await self._notify_level_ups(interaction.user, new_levels)
         await self._update_quest_progress(uid, "crime", 1)
         if success:
             await self._update_quest_progress(uid, "earn", earned)
@@ -507,7 +498,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         item = SHOP_ITEMS.get(item_id)
         if not item:
             return await interaction.response.send_message(
-                f"Unknown item `{item_id}`. Use `/shop browse` to see available items.", ephemeral=True)
+                f"Unknown item `{item_id}`. Use `/shop` to see available items.", ephemeral=True)
 
         wallet = self.get_wallet(uid)
         if wallet < item["price"]:
@@ -527,6 +518,56 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         await self._notify_level_ups(interaction.user, new_levels)
         await self._update_quest_progress(uid, "buy_item", 1)
 
+    # ─────────────────────────────────────────
+    # GIVE ITEM (NEW)
+    # ─────────────────────────────────────────
+    @app_commands.command(name="give", description="Give a shop item from your inventory to another user")
+    @app_commands.describe(user="Who to give the item to", item_id="Item ID to give", quantity="How many to give (default 1)")
+    async def give_item(self, interaction: discord.Interaction, user: discord.Member, item_id: str, quantity: int = 1):
+        uid = interaction.user.id
+
+        if user.id == uid:
+            return await interaction.response.send_message("You can't give items to yourself.", ephemeral=True)
+        if user.bot:
+            return await interaction.response.send_message("You can't give items to bots.", ephemeral=True)
+        if quantity <= 0:
+            return await interaction.response.send_message("Quantity must be at least 1.", ephemeral=True)
+
+        item = SHOP_ITEMS.get(item_id)
+        if not item:
+            return await interaction.response.send_message(
+                f"Unknown item `{item_id}`. Use `/shop` to see valid item IDs.", ephemeral=True)
+
+        # Check sender has enough
+        self.cursor.execute(
+            "SELECT quantity FROM inventory WHERE user_id = ? AND item_key = ?",
+            (uid, item_id)
+        )
+        row = self.cursor.fetchone()
+        owned = row[0] if row else 0
+
+        if owned < quantity:
+            return await interaction.response.send_message(
+                f"You only have **{owned}x** `{item_id}` in your inventory.", ephemeral=True)
+
+        # Transfer
+        self.remove_item(uid, item_id, quantity)
+        self.add_item(user.id, item_id, quantity)
+
+        embed = discord.Embed(
+            title=f"{item['emoji']} Item Given!",
+            description=(
+                f"{interaction.user.mention} gave **{quantity}x {item['name']}** to {user.mention}!\n"
+                f"{item['description']}"
+            ),
+            color=discord.Color.green(),
+        )
+        embed.set_footer(text=f"Use /inventory to check your items")
+        await interaction.response.send_message(embed=embed)
+
+    # ─────────────────────────────────────────
+    # USE
+    # ─────────────────────────────────────────
     @app_commands.command(name="use", description="Use an item from your inventory")
     @app_commands.describe(item_id="Item ID to use")
     async def shop_use(self, interaction: discord.Interaction, item_id: str):
@@ -554,7 +595,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         elif effect == "prestige":
             xp, level, prestige = self.get_xp_row(uid)
             if level < 50:
-                self.add_item(uid, item_id)  # refund
+                self.add_item(uid, item_id)
                 return await interaction.response.send_message(
                     "You need to be at least level **50** to prestige.", ephemeral=True)
             if prestige >= 5:
@@ -595,7 +636,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
             return await interaction.response.send_message(
                 embed=discord.Embed(
                     title=f"{INV_EMOJI} {target.display_name}'s Inventory",
-                    description="Your inventory is empty. Visit `/shop browse`!",
+                    description="Your inventory is empty. Visit `/shop`!",
                     color=discord.Color.dark_grey(),
                 ))
 
@@ -648,10 +689,12 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ─────────────────────────────────────────
-    # RICH LEADERBOARD
+    # RICH LEADERBOARD — FIXED
     # ─────────────────────────────────────────
     @app_commands.command(name="richest", description="See the richest users (wallet + bank)")
     async def richest(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
         self.cursor.execute("""
             SELECT p.user_id, p.chips + COALESCE(e.bank, 0) AS total
             FROM poker_chips p
@@ -661,21 +704,28 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         """)
         rows = self.cursor.fetchall()
         if not rows:
-            return await interaction.response.send_message("No data yet.", ephemeral=True)
+            return await interaction.followup.send("No data yet.")
 
         medals = ["🥇", "🥈", "🥉"]
         embed  = discord.Embed(title=f"{CROWN_EMOJI} Richest Players", color=discord.Color.gold())
         lines  = []
         for i, (uid, total) in enumerate(rows, start=1):
-            try:
-                member = interaction.guild.get_member(uid) or await interaction.guild.fetch_member(uid)
-                name   = member.display_name
-            except Exception:
-                name = f"User {uid}"
+            # Safe name lookup — never raises
+            name = f"User {uid}"
+            if interaction.guild:
+                member = interaction.guild.get_member(uid)
+                if member:
+                    name = member.display_name
+                else:
+                    try:
+                        member = await interaction.guild.fetch_member(uid)
+                        name = member.display_name
+                    except (discord.NotFound, discord.HTTPException):
+                        pass  # user left the server, keep "User {uid}"
             icon = medals[i-1] if i <= 3 else f"`#{i}`"
             lines.append(f"{icon} **{name}** — {total:,} {CHIP_EMOJI}")
         embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     # ─────────────────────────────────────────
     # TITLE
@@ -687,7 +737,7 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
         titles = self.get_all_titles(uid)
         if title not in titles:
             return await interaction.response.send_message(
-                f"You haven't unlocked `{title}`. Check `/eco titles`.", ephemeral=True)
+                f"You haven't unlocked `{title}`. Check `/titles`.", ephemeral=True)
         self.set_active_title(uid, title)
         await interaction.response.send_message(f"Title set to **{title}**!", ephemeral=True)
 
@@ -718,18 +768,15 @@ class EconomyCog(commands.Cog, EconomyMixin, name="Economy"):
             return None
 
     async def _check_streak_achievements(self, interaction: discord.Interaction, uid: int, streak: int):
-        """Trigger achievement checks for daily streaks."""
         pass  # Handled by achievements cog listener
 
     async def _update_quest_progress(self, uid: int, quest_type: str, amount: int):
-        """Update quest progress — called by other cogs too."""
         now = int(time.time())
         self.cursor.execute(
             """UPDATE quests SET progress = MIN(progress + ?, goal)
                WHERE user_id = ? AND quest_id LIKE ? AND completed = 0 AND expires_at > ?""",
             (amount, uid, f"%{quest_type}%", now)
         )
-        # Check completions
         self.cursor.execute(
             """UPDATE quests SET completed = 1
                WHERE user_id = ? AND progress >= goal AND completed = 0 AND expires_at > ?""",
