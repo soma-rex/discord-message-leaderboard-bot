@@ -104,6 +104,14 @@ class TestPokerTableViewExists(unittest.TestCase):
         labels = [child.label for child in view.children]
         self.assertIn("Leave Table", labels)
 
+    def test_custom_table_modal_has_no_six_digit_cap(self):
+        from cogs.poker import CustomTableModal
+
+        cog = _make_cog()
+        modal = CustomTableModal(cog)
+        self.assertIsNone(modal.buy_in.max_length)
+        self.assertIsNone(modal.raise_cap.max_length)
+
 
 class TestOpenTable(unittest.IsolatedAsyncioTestCase):
     """/poker create → _open_table must acknowledge the interaction."""

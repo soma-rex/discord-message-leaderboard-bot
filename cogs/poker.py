@@ -268,13 +268,11 @@ class CustomTableModal(discord.ui.Modal, title="Nebula Syndicate"):
         label="Buy-in",
         placeholder="Enter the table buy-in",
         required=True,
-        max_length=6,
     )
     raise_cap = discord.ui.TextInput(
         label="Raise cap",
         placeholder="Enter the max raise per turn",
         required=True,
-        max_length=6,
     )
 
     def __init__(self, cog: "PokerCog"):
@@ -308,7 +306,6 @@ class RaiseModal(discord.ui.Modal, title="Custom Raise"):
         label="Raise amount",
         placeholder="Raise by this amount",
         required=True,
-        max_length=6,
     )
 
     def __init__(self, view: "PokerBetView"):
