@@ -135,6 +135,7 @@ async def setup_hook():
     await bot.load_extension("cogs.admin")
     await bot.load_extension("cogs.ai_cog")
     await bot.load_extension("cogs.hello_gif")
+    await bot.load_extension("cogs.uno")
     await bot.load_extension("cogs.staff_logger")
     # New progression cogs
     await bot.load_extension("cogs.economy_cog")
