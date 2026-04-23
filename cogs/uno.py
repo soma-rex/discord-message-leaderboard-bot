@@ -1,3 +1,4 @@
+import asyncio
 import random
 from enum import Enum
 from typing import Optional
@@ -213,6 +214,7 @@ class UnoGame:
         self.pending_draw = 0
         self.skip_stack = 0
         self.winner: Optional[Player] = None
+        self.can_end_turn_after_draw: Optional[int] = None
 
     def add_player(self, member: discord.Member) -> Optional[str]:
         if self.started:
@@ -253,8 +255,7 @@ class UnoGame:
             if len(self.players) == 2:
                 self.advance_turn()
         elif top.value == CardValue.DRAW2 and self.mode == GameMode.CLASSIC:
-            self.pending_draw += 2
-            self._force_draw_if_needed()
+            self._give_cards(self.current_player, 2)
             self.advance_turn()
 
     @property
@@ -304,6 +305,7 @@ class UnoGame:
         player.remove_card(card_index)
         self.discard_pile.append(card)
         player.called_uno = False
+        self.can_end_turn_after_draw = None
         return True, "OK"
 
     def apply_card_effect(self) -> dict:
@@ -315,20 +317,20 @@ class UnoGame:
                 self.skip_stack += 1
             else:
                 result["skip"] = True
-                self.advance_turn()
+                self.advance_turn(2)
         elif card.value == CardValue.REVERSE:
             self.direction *= -1
             result["reverse"] = True
             if len(self.players) == 2:
                 result["skip"] = True
-                self.advance_turn()
+                self.advance_turn(2)
         elif card.value == CardValue.DRAW2:
             self.pending_draw += 2
             if self.mode == GameMode.CLASSIC:
                 self._force_draw_if_needed()
                 result["draw"] = 2
                 result["skip"] = True
-                self.advance_turn()
+                self.advance_turn(2)
             else:
                 result["next_draws"] = self.pending_draw
         elif card.value == CardValue.WILD4:
@@ -337,7 +339,7 @@ class UnoGame:
                 self._force_draw_if_needed()
                 result["draw"] = 4
                 result["skip"] = True
-                self.advance_turn()
+                self.advance_turn(2)
             else:
                 result["next_draws"] = self.pending_draw
 
@@ -361,6 +363,7 @@ class UnoGame:
     def draw_card(self, player: Player) -> tuple[bool, str, Optional[Card]]:
         if player.id != self.current_player.id:
             return False, "It's not your turn.", None
+        self.can_end_turn_after_draw = None
 
         if self.mode == GameMode.NO_MERCY and self.pending_draw > 0:
             count = self.pending_draw
@@ -379,6 +382,15 @@ class UnoGame:
             return False, "The deck is empty and cannot be replenished.", None
         player.add_card(card)
         return True, "Drew a card.", card
+
+    def end_turn_after_draw(self, player: Player) -> tuple[bool, str]:
+        if player.id != self.current_player.id:
+            return False, "It's not your turn."
+        if self.can_end_turn_after_draw != player.id:
+            return False, "You can only end your turn after drawing a playable card."
+        self.can_end_turn_after_draw = None
+        self.advance_turn()
+        return True, f"**{player.display_name}** ended their turn."
 
     def resolve_skip_stack(self):
         if self.mode == GameMode.NO_MERCY and self.skip_stack > 0:
@@ -626,7 +638,7 @@ class CardSelect(discord.ui.Select):
         if game.mode == GameMode.CLASSIC:
             if not effect.get("skip"):
                 game.advance_turn()
-        elif not effect.get("skip") and game.pending_draw == 0:
+        elif not effect.get("skip"):
             game.advance_turn()
 
         await self.card_view.cog.refresh_game_state(self.card_view.channel, game, extra)
@@ -688,6 +700,9 @@ class GameView(discord.ui.View):
         super().__init__(timeout=300)
         self.cog = cog
         self.game = game
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) and item.label == "End Turn":
+                item.disabled = game.can_end_turn_after_draw is None
 
     def _get_player(self, interaction: discord.Interaction) -> Optional[Player]:
         return next((player for player in self.game.players if player.id == interaction.user.id), None)
@@ -731,10 +746,25 @@ class GameView(discord.ui.View):
         if "stacked penalty" in msg:
             extra = f"**{player.display_name}** absorbed the stack and drew cards."
         else:
-            self.game.advance_turn()
             if self.game.mode == GameMode.CLASSIC and drawn and is_valid_play(drawn, self.game.top_card):
-                extra += " The drawn card is playable and was added to their hand."
+                self.game.can_end_turn_after_draw = player.id
+                extra += " The drawn card is playable; they may play it or end their turn."
+            else:
+                self.game.advance_turn()
         await self.cog.refresh_game_state(interaction.channel, self.game, extra)
+
+    @discord.ui.button(label="End Turn", style=discord.ButtonStyle.secondary)
+    async def end_turn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = self._get_player(interaction)
+        if not player:
+            await interaction.response.send_message("You're not in this game.", ephemeral=True)
+            return
+        success, msg = self.game.end_turn_after_draw(player)
+        if not success:
+            await interaction.response.send_message(msg, ephemeral=True)
+            return
+        await interaction.response.defer()
+        await self.cog.refresh_game_state(interaction.channel, self.game, msg)
 
     @discord.ui.button(label="Call UNO", style=discord.ButtonStyle.danger)
     async def call_uno(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -745,6 +775,7 @@ class GameView(discord.ui.View):
         success, msg = self.game.call_uno(player)
         await interaction.response.send_message(msg, ephemeral=not success)
         if success:
+            self.cog._cancel_uno_penalty(interaction.channel.id, player.id)
             await self.cog.refresh_game_state(interaction.channel, self.game, msg)
 
     @discord.ui.button(label="Show Hand", style=discord.ButtonStyle.success)
@@ -803,6 +834,50 @@ class UnoCog(commands.Cog, name="UNO"):
         self.bot = bot
         self.active_games: dict[int, UnoGame] = {}
         self.last_game_messages: dict[int, discord.Message] = {}
+        self.uno_penalty_tasks: dict[tuple[int, int], asyncio.Task] = {}
+
+    def _cancel_uno_penalty(self, channel_id: int, user_id: int):
+        task = self.uno_penalty_tasks.pop((channel_id, user_id), None)
+        if task:
+            task.cancel()
+
+    def _cancel_channel_uno_penalties(self, channel_id: int):
+        for key, task in list(self.uno_penalty_tasks.items()):
+            if key[0] == channel_id:
+                task.cancel()
+                self.uno_penalty_tasks.pop(key, None)
+
+    def _schedule_uno_penalties(self, channel: discord.TextChannel, game: UnoGame):
+        for player in game.players:
+            key = (channel.id, player.id)
+            if len(player.hand) == 1 and not player.called_uno:
+                if key not in self.uno_penalty_tasks:
+                    self.uno_penalty_tasks[key] = asyncio.create_task(
+                        self._apply_uno_penalty_after_delay(channel, game.channel_id, player.id)
+                    )
+            else:
+                self._cancel_uno_penalty(channel.id, player.id)
+
+    async def _apply_uno_penalty_after_delay(self, channel: discord.TextChannel, channel_id: int, user_id: int):
+        key = (channel_id, user_id)
+        try:
+            await asyncio.sleep(30)
+            game = self.active_games.get(channel_id)
+            if not game or not game.started:
+                return
+            player = next((entry for entry in game.players if entry.id == user_id), None)
+            if not player or len(player.hand) != 1 or player.called_uno:
+                return
+            game._give_cards(player, 2)
+            await self.refresh_game_state(
+                channel,
+                game,
+                f"**{player.display_name}** did not call UNO within 30 seconds and drew 2 cards.",
+            )
+        except asyncio.CancelledError:
+            return
+        finally:
+            self.uno_penalty_tasks.pop(key, None)
 
     async def refresh_game_state(self, channel: discord.TextChannel, game: UnoGame, extra: str = ""):
         old_msg = self.last_game_messages.pop(channel.id, None)
@@ -826,9 +901,11 @@ class UnoCog(commands.Cog, name="UNO"):
             )
         except discord.Forbidden:
             pass
+        self._schedule_uno_penalties(channel, game)
 
     async def end_game(self, channel: discord.TextChannel, game: UnoGame, winner: Player, extra: str = ""):
         self.active_games.pop(channel.id, None)
+        self._cancel_channel_uno_penalties(channel.id)
         old_msg = self.last_game_messages.pop(channel.id, None)
         if old_msg:
             try:
@@ -836,11 +913,19 @@ class UnoCog(commands.Cog, name="UNO"):
             except discord.HTTPException:
                 pass
 
-        scores = game.score_summary()
-        score_text = "\n".join(f"{name} - **{points}** pts" for name, points in scores)
+        winner_points = sum(player.points() for player in game.players if player.id != winner.id)
+        score_text = "\n".join(
+            f"{player.display_name} - **{player.points()}** points left in hand"
+            for player in sorted(game.players, key=lambda entry: entry.points())
+        )
         embed = discord.Embed(
             title=f"{winner.display_name} wins UNO.",
-            description=f"{extra}\n\nFinal scores:\n{score_text}",
+            description=(
+                f"{extra}\n\n"
+                f"**Round score:** {winner.display_name} earns **{winner_points}** points "
+                "from the cards left in everyone else's hands.\n\n"
+                f"**Cards left:**\n{score_text}"
+            ),
             color=discord.Color.gold(),
         )
         embed.set_footer(text="Thanks for playing.")
@@ -939,6 +1024,7 @@ class UnoCog(commands.Cog, name="UNO"):
             await ctx.send("Only the host or an admin can end the game.")
             return
         self.active_games.pop(ctx.channel.id, None)
+        self._cancel_channel_uno_penalties(ctx.channel.id)
         old_msg = self.last_game_messages.pop(ctx.channel.id, None)
         if old_msg:
             try:
