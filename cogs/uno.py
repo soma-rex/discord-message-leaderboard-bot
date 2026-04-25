@@ -433,8 +433,6 @@ def make_game_container(game: UnoGame, extra_text: str = "") -> discord.ui.Conta
     if top.is_wild and top.chosen_color:
         top_display += f" ({top.chosen_color.value.title()})"
     
-    # We use a Section with a Thumbnail for the top card to make it look premium
-    # Actually let's just use Sections for info
     info_section = discord.ui.Section(
         discord.ui.TextDisplay(f"**Top Card**: {top_display}\n**Draw Pile**: {len(game.deck)}")
     )

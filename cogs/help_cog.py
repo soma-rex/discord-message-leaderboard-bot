@@ -133,14 +133,12 @@ def build_help_container(page_key: str) -> discord.ui.Container:
     page = HELP_PAGES[page_key]
     container = discord.ui.Container(accent_color=discord.Color.blurple())
     
-    container.add_item(discord.ui.TextDisplay(f"## {page['title']}"))
+    container.add_item(discord.ui.TextDisplay(f"## {page['title']}\n-# Prefix: `;`"))
+    container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(page["description"]))
     
     for name, value in page["fields"]:
         container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**{name}**\n{value}")))
-    
-    container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay("Prefix: ; or & | Use the dropdown to switch pages"))
     return container
 
 

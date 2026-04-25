@@ -105,17 +105,14 @@ class AdminCog(commands.Cog, name="Admin"):
         self.cursor.execute("SELECT SUM(count) FROM messages")
         total_messages = self.cursor.fetchone()[0] or 0
 
-        container = discord.ui.Container(accent_color=discord.Color.orange())
-        container.add_item(discord.ui.TextDisplay("## Debug"))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Ping**: {round(self.bot.latency * 1000)} ms")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Stored Users**: {users}")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Total Messages**: {total_messages}")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Server**: {interaction.guild.name}\nID: {interaction.guild.id}")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Channel**: {interaction.channel.name}\nID: {interaction.channel.id}")))
+        embed = discord.Embed(title="Debug", color=discord.Color.orange())
+        embed.add_field(name="Ping", value=f"{round(self.bot.latency * 1000)} ms", inline=True)
+        embed.add_field(name="Stored Users", value=str(users), inline=True)
+        embed.add_field(name="Total Messages", value=str(total_messages), inline=True)
+        embed.add_field(name="Server", value=f"{interaction.guild.name}\nID: {interaction.guild.id}", inline=False)
+        embed.add_field(name="Channel", value=f"{interaction.channel.name}\nID: {interaction.channel.id}", inline=False)
         
-        view = discord.ui.LayoutView()
-        view.add_item(container)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @admin_group.command(name="echo", description="Send an admin message multiple times")
     @app_commands.checks.has_permissions(administrator=True)
@@ -255,14 +252,12 @@ class AdminCog(commands.Cog, name="Admin"):
             return
 
         latest = recent[-1]
-        container = discord.ui.Container(accent_color=discord.Color.blurple())
-        container.add_item(discord.ui.TextDisplay("## Most Recent Reaction"))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**User**: <@{latest['user_id']}>\n**Emoji**: {latest['emoji']}")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Message**: [Jump]({latest['jump_url']})")))
+        embed = discord.Embed(title="Most Recent Reaction", color=discord.Color.blurple())
+        embed.add_field(name="User", value=f"<@{latest['user_id']}>", inline=True)
+        embed.add_field(name="Emoji", value=latest['emoji'], inline=True)
+        embed.add_field(name="Message", value=f"[Jump]({latest['jump_url']})", inline=False)
         
-        view = discord.ui.LayoutView()
-        view.add_item(container)
-        await ctx.send(view=view)
+        await ctx.send(embed=embed)
 
     @commands.command(name="p")
     @commands.has_permissions(manage_messages=True)

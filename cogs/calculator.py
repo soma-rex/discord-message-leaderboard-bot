@@ -226,10 +226,10 @@ def build_session_container(
     if result.extra_lines:
         container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Details**\n" + "\n".join(result.extra_lines))))
     
-    container.add_item(discord.ui.Section(
-        discord.ui.TextDisplay(f"**LaTeX Preview**\n[Result Image]({build_latex_image_url(result.output_latex)})"),
-        accessory=discord.ui.Thumbnail(media=build_latex_image_url(result.output_latex))
-    ))
+    container.add_item(discord.ui.TextDisplay("**LaTeX Preview**"))
+    gallery = discord.ui.MediaGallery()
+    gallery.add_item(media=build_latex_image_url(result.output_latex))
+    container.add_item(gallery)
     
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay("Your original equation stays unchanged. Use another button to try a different operation."))

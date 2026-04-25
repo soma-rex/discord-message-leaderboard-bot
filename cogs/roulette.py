@@ -129,6 +129,7 @@ class RouletteCog(commands.Cog, ChipsMixin, name="Roulette"):
         balance = self.get_chips(uid)
         container = discord.ui.Container(accent_color=embed_color)
         container.add_item(discord.ui.TextDisplay(f"## {title}"))
+        container.add_item(discord.ui.Separator())
         
         container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{ROULETTE_BALL} **Your Bet**: {description}")))
         container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{ROULETTE_WHEEL} **Landed On**: {color} **{result}**")))
