@@ -27,7 +27,7 @@ LURKING_RESPONSE_EMOJIS = [
 ]
 
 
-class LurkingView(discord.ui.View):
+class LurkingView(discord.ui.LayoutView):
     def __init__(self):
         super().__init__(timeout=60)
         self.clicked_users: set[int] = set()
@@ -58,10 +58,15 @@ class LurkingView(discord.ui.View):
 
         self.clicked_users.add(interaction.user.id)
         emoji = random.choice(LURKING_RESPONSE_EMOJIS)
-        await interaction.response.send_message(f"{interaction.user.mention} is lurking. {emoji}")
+        
+        container = discord.ui.Container(accent_color=discord.Color.blurple())
+        container.add_item(discord.ui.TextDisplay(f"{interaction.user.mention} is lurking. {emoji}"))
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view)
 
 
-class BetChoiceView(discord.ui.View):
+class BetChoiceView(discord.ui.LayoutView):
     def __init__(self, user_id: int, amount: int, cog):
         super().__init__(timeout=60)
         self.user_id = user_id
@@ -257,13 +262,13 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             await ctx.send("The maximum number you can roll is 100,000,000.")
             return
         result = random.randint(1, number)
-        embed = discord.Embed(
-            title=f"{DICE_EMOJI} Roll",
-            description=f"Rolling 1-{number:,}",
-            color=discord.Color.blue()
-        )
-        embed.add_field(name="Result", value=f"**{result:,}**", inline=False)
-        await ctx.send(embed=embed)
+        container = discord.ui.Container(accent_color=discord.Color.blue())
+        container.add_item(discord.ui.TextDisplay(f"## {DICE_EMOJI} Roll\nRolling 1-{number:,}"))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Result**: {result:,}")))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await ctx.send(view=view)
 
     @commands.command(name="bet")
     async def bet_cmd(self, ctx: commands.Context, amount: int = None):
@@ -278,14 +283,14 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             await ctx.send(f"Not enough chips! You have **{balance:,}** {CHIP_EMOJI} but need **{amount:,}**.")
             return
         view = BetChoiceView(ctx.author.id, amount, self)
-        embed = discord.Embed(
-            title=f"{DICE_EMOJI} Choose Your Bet",
-            description=f"Bet: **{amount:,}** {CHIP_EMOJI}\n\nChoose whether you want to roll **HIGH** or **LOW**:",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="High", value="Win if you roll higher than the bot", inline=True)
-        embed.add_field(name="Low", value="Win if you roll lower than the bot", inline=True)
-        await ctx.send(embed=embed, view=view)
+        container = discord.ui.Container(accent_color=discord.Color.gold())
+        container.add_item(discord.ui.TextDisplay(f"## {DICE_EMOJI} Choose Your Bet\nBet: **{amount:,}** {CHIP_EMOJI}"))
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**High**\nWin if you roll higher than the bot")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Low**\nWin if you roll lower than the bot")))
+        
+        view.add_item(container)
+        await ctx.send(view=view)
 
     @commands.command(name="bethigh")
     async def bet_high_cmd(self, ctx: commands.Context, amount: int):
@@ -359,12 +364,18 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
 
         new_balance = self.get_chips(user_id)
 
-        embed = discord.Embed(title=title, color=color, description=result_text)
-        embed.add_field(name="Your Bet", value=bet_desc, inline=False)
-        embed.add_field(name=f"{DICE_EMOJI} Your Roll", value=f"**{user_roll}**", inline=True)
-        embed.add_field(name=f"{DICE_EMOJI} Bot Roll", value=f"**{bot_roll}**", inline=True)
-        embed.add_field(name=f"{MONEYBAG_EMOJI} New Balance", value=f"**{new_balance:,}**", inline=False)
-        embed.set_footer(text=f"@{user_name}")
+        container = discord.ui.Container(accent_color=color)
+        container.add_item(discord.ui.TextDisplay(f"## {title}"))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Result**: {result_text}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Your Bet**: {bet_desc}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{DICE_EMOJI} **Your Roll**: {user_roll} | **Bot Roll**: {bot_roll}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{MONEYBAG_EMOJI} **New Balance**: {new_balance:,}")))
+        
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(f"@{user_name}"))
+
+        view = discord.ui.LayoutView()
+        view.add_item(container)
 
         if is_interaction:
             if ctx_or_interaction.response.is_done():
@@ -422,13 +433,13 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             await interaction.response.send_message("The maximum number you can roll is 100,000,000.", ephemeral=True)
             return
         result = random.randint(1, number)
-        embed = discord.Embed(
-            title=f"{DICE_EMOJI} Roll",
-            description=f"Rolling 1-{number:,}",
-            color=discord.Color.blue()
-        )
-        embed.add_field(name="Result", value=f"**{result:,}**", inline=False)
-        await interaction.response.send_message(embed=embed)
+        container = discord.ui.Container(accent_color=discord.Color.blue())
+        container.add_item(discord.ui.TextDisplay(f"## {DICE_EMOJI} Roll\nRolling 1-{number:,}"))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Result**: {result:,}")))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view)
 
     @app_commands.command(name="bet", description="Bet chips on a dice game - choose high or low")
     @app_commands.describe(amount="Amount of chips to bet")
@@ -444,14 +455,14 @@ class FunCog(commands.Cog, ChipsMixin, name="Fun"):
             )
             return
         view = BetChoiceView(interaction.user.id, amount, self)
-        embed = discord.Embed(
-            title=f"{DICE_EMOJI} Choose Your Bet",
-            description=f"Bet: **{amount:,}** {CHIP_EMOJI}\n\nChoose whether you want to roll **HIGH** or **LOW**:",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="High", value="Win if you roll higher than the bot", inline=True)
-        embed.add_field(name="Low", value="Win if you roll lower than the bot", inline=True)
-        await interaction.response.send_message(embed=embed, view=view)
+        container = discord.ui.Container(accent_color=discord.Color.gold())
+        container.add_item(discord.ui.TextDisplay(f"## {DICE_EMOJI} Choose Your Bet\nBet: **{amount:,}** {CHIP_EMOJI}"))
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**High**\nWin if you roll higher than the bot")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Low**\nWin if you roll lower than the bot")))
+        
+        view.add_item(container)
+        await interaction.response.send_message(view=view)
 
     @app_commands.command(name="bethigh", description="Bet on rolling higher than the bot")
     @app_commands.describe(amount="Amount of chips to bet")

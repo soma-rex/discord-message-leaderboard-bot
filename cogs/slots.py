@@ -58,7 +58,7 @@ def evaluate_spin(reels: list) -> tuple:
     return 0, "No match."
 
 
-class SlotsView(discord.ui.View):
+class SlotsView(discord.ui.LayoutView):
     """Interactive view for continuous slot spinning."""
 
     def __init__(self, cog, user_id: int, bet: int):
@@ -68,21 +68,23 @@ class SlotsView(discord.ui.View):
         self.bet = bet
         self.spins = 0
 
-    async def update_embed(self, interaction: discord.Interaction) -> tuple[discord.Embed, bool]:
-        """Perform a spin and return the updated embed and whether to continue."""
+    def refresh_components(self, container: discord.ui.Container):
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Container):
+                self.remove_item(child)
+        self.add_item(container)
+
+    async def update_container(self, interaction: discord.Interaction) -> tuple[discord.ui.Container, bool]:
+        """Perform a spin and return the updated container and whether to continue."""
         # Check if user has enough chips
         balance = self.cog.get_chips(self.user_id)
         if balance < self.bet:
-            embed = discord.Embed(
-                title=f"{LOSE_EMOJI} Not enough chips!",
-                description=f"You need **{self.bet:,}** {CHIP_EMOJI} but only have **{balance:,}** {CHIP_EMOJI}.",
-                color=discord.Color.red()
-            )
-            embed.set_footer(
-                text=f"{interaction.user.display_name}",
-                icon_url=interaction.user.display_avatar.url
-            )
-            return embed, False
+            container = discord.ui.Container(accent_color=discord.Color.red())
+            container.add_item(discord.ui.Section(
+                discord.ui.TextDisplay(f"## {LOSE_EMOJI} Not enough chips!\nYou need **{self.bet:,}** {CHIP_EMOJI} but only have **{balance:,}** {CHIP_EMOJI}."),
+                accessory=discord.ui.Thumbnail(media=interaction.user.display_avatar.url)
+            ))
+            return container, False
 
         # Remove chips for bet
         self.cog.remove_chips(self.user_id, self.bet)
@@ -110,19 +112,16 @@ class SlotsView(discord.ui.View):
         balance = self.cog.get_chips(self.user_id)
         self.spins += 1
 
-        # Create embed
-        embed = discord.Embed(title=title, color=embed_color)
-        embed.add_field(name=f"{SPIN_EMOJI} Reels", value="  |  ".join(reels), inline=False)
-        embed.add_field(name="Result", value=result_text, inline=False)
-        embed.add_field(name=f"{CHIP_EMOJI} Bet", value=f"**{self.bet:,}**", inline=True)
-        embed.add_field(name="Balance", value=f"**{balance:,}**", inline=True)
-        embed.add_field(name="Total Spins", value=f"**{self.spins}**", inline=True)
-        embed.set_footer(
-            text=f"{interaction.user.display_name}",
-            icon_url=interaction.user.display_avatar.url
-        )
+        container = discord.ui.Container(accent_color=embed_color)
+        container.add_item(discord.ui.TextDisplay(f"## {title}"))
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Reels**: {'  |  '.join(reels)}\n**Result**: {result_text}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {self.bet:,} | **Balance**: {balance:,} | **Spins**: {self.spins}")))
+        
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(f"@{interaction.user.display_name}"))
 
-        return embed, True
+        return container, True
 
     @discord.ui.button(label="Spin Again", style=discord.ButtonStyle.green, emoji=SPIN_EMOJI)
     async def spin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -136,15 +135,17 @@ class SlotsView(discord.ui.View):
             return
 
         await interaction.response.defer()
-        embed, can_continue = await self.update_embed(interaction)
+        container, can_continue = await self.update_container(interaction)
+        self.refresh_components(container)
 
         if not can_continue:
             # Disable all buttons if out of chips
             for item in self.children:
-                item.disabled = True
-            await interaction.edit_original_response(embed=embed, view=self)
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+            await interaction.edit_original_response(view=self)
         else:
-            await interaction.edit_original_response(embed=embed)
+            await interaction.edit_original_response(view=self)
 
     @discord.ui.button(label="Cash Out", style=discord.ButtonStyle.red, emoji=MONEYBAG_EMOJI)
     async def cashout_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -158,21 +159,19 @@ class SlotsView(discord.ui.View):
             return
 
         balance = self.cog.get_chips(self.user_id)
-        embed = discord.Embed(
-            title=f"{MONEYBAG_EMOJI} Cashed Out!",
-            description=f"You walked away with **{balance:,}** {CHIP_EMOJI} after **{self.spins}** spins.",
-            color=discord.Color.gold()
-        )
-        embed.set_footer(
-            text=f"{interaction.user.display_name}",
-            icon_url=interaction.user.display_avatar.url
-        )
+        container = discord.ui.Container(accent_color=discord.Color.gold())
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(f"## {MONEYBAG_EMOJI} Cashed Out!\nYou walked away with **{balance:,}** {CHIP_EMOJI} after **{self.spins}** spins."),
+            accessory=discord.ui.Thumbnail(media=interaction.user.display_avatar.url)
+        ))
 
         # Disable all buttons
         for item in self.children:
-            item.disabled = True
-
-        await interaction.response.edit_message(embed=embed, view=self)
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+        
+        self.refresh_components(container)
+        await interaction.response.edit_message(view=self)
         self.stop()
 
     async def on_timeout(self):
@@ -216,30 +215,28 @@ class SlotsCog(commands.Cog, ChipsMixin, name="Slots"):
         view = SlotsView(self, uid, bet)
 
         # Perform first spin
-        embed, _ = await view.update_embed(interaction)
+        container, _ = await view.update_container(interaction)
+        view.add_item(container)
 
         # Send with buttons
-        await interaction.followup.send(embed=embed, view=view)
+        await interaction.followup.send(view=view)
 
     @slots_group.command(name="paytable", description="Show symbol payouts")
     async def slots_paytable(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title=f"{SPIN_EMOJI} Slots Pay Table",
-            color=discord.Color.blurple(),
-            description="**3 of a kind** payouts (bet x multiplier):\n",
-        )
+        container = discord.ui.Container(accent_color=discord.Color.blurple())
+        container.add_item(discord.ui.TextDisplay(f"## {SPIN_EMOJI} Slots Pay Table\n**3 of a kind** payouts (bet x multiplier):"))
+        
         lines = []
         for emoji, weight, mult in sorted(SYMBOLS, key=lambda symbol: symbol[2], reverse=True):
-            if weight <= 3:
-                rarity = "Rare"
-            elif weight <= 7:
-                rarity = "Uncommon"
-            else:
-                rarity = "Common"
+            rarity = "Rare" if weight <= 3 else ("Uncommon" if weight <= 7 else "Common")
             lines.append(f"{emoji} x 3 -> **{mult}x**  |  {rarity}")
         lines.append("\n*Two of any kind -> **bet returned (1x)***")
-        embed.description += "\n".join(lines)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("\n".join(lines))))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

@@ -129,17 +129,19 @@ SELECT_OPTIONS = [
 ]
 
 
-def build_help_embed(page_key: str) -> discord.Embed:
+def build_help_container(page_key: str) -> discord.ui.Container:
     page = HELP_PAGES[page_key]
-    embed = discord.Embed(
-        title=page["title"],
-        description=page["description"],
-        color=discord.Color.blurple(),
-    )
+    container = discord.ui.Container(accent_color=discord.Color.blurple())
+    
+    container.add_item(discord.ui.TextDisplay(f"## {page['title']}"))
+    container.add_item(discord.ui.TextDisplay(page["description"]))
+    
     for name, value in page["fields"]:
-        embed.add_field(name=name, value=value, inline=False)
-    embed.set_footer(text="Prefix: ; or & | Use the dropdown to switch pages")
-    return embed
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**{name}**\n{value}")))
+    
+    container.add_item(discord.ui.Separator())
+    container.add_item(discord.ui.TextDisplay("Prefix: ; or & | Use the dropdown to switch pages"))
+    return container
 
 
 class HelpSelect(discord.ui.Select):
@@ -170,23 +172,23 @@ class HelpSelect(discord.ui.Select):
             )
             return
         self.help_view.page_key = self.values[0]
-        self.help_view.refresh_select()
+        self.help_view.refresh_components()
         await interaction.response.edit_message(
-            embed=build_help_embed(self.help_view.page_key),
             view=self.help_view,
         )
 
 
-class HelpView(discord.ui.View):
+class HelpView(discord.ui.LayoutView):
     def __init__(self, owner_id: int, page_key: str = "overview"):
         super().__init__(timeout=180)
         self.owner_id = owner_id
         self.page_key = page_key
-        self.refresh_select()
+        self.refresh_components()
 
-    def refresh_select(self):
+    def refresh_components(self):
         self.clear_items()
         self.add_item(HelpSelect(self))
+        self.add_item(build_help_container(self.page_key))
 
 
 class HelpCog(commands.Cog, name="Help"):
@@ -196,13 +198,12 @@ class HelpCog(commands.Cog, name="Help"):
     @commands.command(name="help")
     async def help_prefix(self, ctx: commands.Context):
         view = HelpView(ctx.author.id)
-        await ctx.send(embed=build_help_embed("overview"), view=view)
+        await ctx.send(view=view)
 
     @app_commands.command(name="help", description="Show the bot help menu")
     async def help_slash(self, interaction: discord.Interaction):
         view = HelpView(interaction.user.id)
         await interaction.response.send_message(
-            embed=build_help_embed("overview"),
             view=view,
             ephemeral=True,
         )

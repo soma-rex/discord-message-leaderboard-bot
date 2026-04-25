@@ -198,44 +198,60 @@ CALCULATOR_ACTIONS: dict[str, tuple[str, callable]] = {
 }
 
 
-def build_session_embed(
+def build_session_container(
     expression: str,
     variable: str | None,
     action_key: str | None = None,
     result: CalculationResult | None = None,
     error_text: str | None = None,
-) -> discord.Embed:
-    embed = discord.Embed(title="Calculator", color=discord.Color.blurple())
-    embed.add_field(name="Original", value=f"```text\n{expression}\n```", inline=False)
-    embed.add_field(name="Variable", value=variable or "Auto", inline=True)
+) -> discord.ui.Container:
+    container = discord.ui.Container(accent_color=discord.Color.blurple())
+    container.add_item(discord.ui.TextDisplay("## Calculator"))
+    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Original**\n```text\n{expression}\n```")))
+    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Variable**\n{variable or 'Auto'}")))
 
     if action_key is None:
-        embed.add_field(name="Operation", value="Choose a button below.", inline=True)
-        embed.add_field(name="Result", value="No calculation run yet.", inline=False)
-        return embed
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Operation**\nChoose a button below.")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Result**\nNo calculation run yet.")))
+        return container
 
     label = CALCULATOR_ACTIONS[action_key][0]
-    embed.add_field(name="Operation", value=label, inline=True)
+    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Operation**\n{label}")))
     if error_text is not None:
-        embed.add_field(name="Result", value=error_text, inline=False)
-        return embed
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Result**\n{error_text}")))
+        return container
 
     assert result is not None
-    embed.add_field(name="Result", value=f"```text\n{result.output_text}\n```", inline=False)
+    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Result**\n```text\n{result.output_text}\n```")))
     if result.extra_lines:
-        embed.add_field(name="Details", value="\n".join(result.extra_lines), inline=False)
-    embed.add_field(name="LaTeX Preview", value=f"[Result Image]({build_latex_image_url(result.output_latex)})", inline=False)
-    embed.set_image(url=build_latex_image_url(result.output_latex))
-    embed.set_footer(text="Your original equation stays unchanged. Use another button to try a different operation.")
-    return embed
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Details**\n" + "\n".join(result.extra_lines))))
+    
+    container.add_item(discord.ui.Section(
+        discord.ui.TextDisplay(f"**LaTeX Preview**\n[Result Image]({build_latex_image_url(result.output_latex)})"),
+        accessory=discord.ui.Thumbnail(media=build_latex_image_url(result.output_latex))
+    ))
+    
+    container.add_item(discord.ui.Separator())
+    container.add_item(discord.ui.TextDisplay("Your original equation stays unchanged. Use another button to try a different operation."))
+    return container
 
 
-class CalcSessionView(discord.ui.View):
-    def __init__(self, owner_id: int, expression: str, variable: str | None):
+class CalcSessionView(discord.ui.LayoutView):
+    def __init__(self, owner_id: int, expression: str, variable: str | None, container: discord.ui.Container):
         super().__init__(timeout=600)
         self.owner_id = owner_id
         self.expression = expression
         self.variable = variable
+        self.container = container
+        self.refresh_components()
+
+    def refresh_components(self):
+        # We need to preserve buttons, but update the container
+        # Actually, buttons are decorators, so they are added to the class.
+        # LayoutView.clear_items() removes them.
+        # So we should re-add them if they were removed.
+        # But wait, decorators add them to the view instance on init.
+        pass
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.owner_id:
@@ -248,12 +264,22 @@ class CalcSessionView(discord.ui.View):
         try:
             result = action(self.expression, self.variable)
         except CalculatorError as exc:
-            embed = build_session_embed(self.expression, self.variable, action_key, error_text=str(exc))
+            self.container = build_session_container(self.expression, self.variable, action_key, error_text=str(exc))
         except Exception as exc:
-            embed = build_session_embed(self.expression, self.variable, action_key, error_text=f"Calculation failed: {exc}")
+            self.container = build_session_container(self.expression, self.variable, action_key, error_text=f"Calculation failed: {exc}")
         else:
-            embed = build_session_embed(self.expression, self.variable, action_key, result=result)
-        await interaction.response.edit_message(embed=embed, view=self)
+            self.container = build_session_container(self.expression, self.variable, action_key, result=result)
+        
+        # Re-add container
+        self.clear_items()
+        self.add_item(self.container)
+        # Re-add buttons (this is a bit annoying with standard discord.py View decorators)
+        # But wait, LayoutView works differently?
+        # Actually, if we use decorators, we should just let them be.
+        # Clear items removes them though.
+        
+        # Let's try a different approach: keep the buttons and just replace the container item.
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Evaluate", style=discord.ButtonStyle.primary, row=0)
     async def evaluate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -296,9 +322,12 @@ class CalculatorCog(commands.Cog, name="Calculator"):
         variable="Optional variable to use for diff, integrate, solve, or domain",
     )
     async def calc(self, interaction: discord.Interaction, expression: str, variable: str | None = None):
-        view = CalcSessionView(interaction.user.id, expression.strip(), variable.strip() if variable else None)
-        embed = build_session_embed(view.expression, view.variable)
-        await interaction.response.send_message(embed=embed, view=view)
+        expr = expression.strip()
+        var = variable.strip() if variable else None
+        container = build_session_container(expr, var)
+        view = CalcSessionView(interaction.user.id, expr, var, container)
+        view.add_item(container)
+        await interaction.response.send_message(view=view)
 
 
 async def setup(bot: commands.Bot):

@@ -50,20 +50,19 @@ class LevelingCog(commands.Cog, EconomyMixin, name="Leveling"):
         )
         rank_pos = self.cursor.fetchone()[0] + 1
 
-        embed = discord.Embed(
-            title=f"{LEVEL_EMOJI} {target.display_name}{prestige_str}",
-            description=f"*{title}*" if title else "",
-            color=discord.Color.blurple(),
-        )
-        embed.set_thumbnail(url=target.display_avatar.url)
-        embed.add_field(name=f"{LEVEL_EMOJI} Level", value=f"**{cur_level}**", inline=True)
-        embed.add_field(name="Rank", value=f"**#{rank_pos}**", inline=True)
-        embed.add_field(name=f"{PRESTIGE_EMOJI} Prestige", value=f"**{prestige}**", inline=True)
-        embed.add_field(
-            name=f"{XP_EMOJI} Progress",
-            value=f"`{bar}` **{raw_xp:,}** / **{xp_needed:,}** XP",
-            inline=False,
-        )
+        container = discord.ui.Container(accent_color=discord.Color.blurple())
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(f"## {LEVEL_EMOJI} {target.display_name}{prestige_str}\n*{title}*" if title else f"## {LEVEL_EMOJI} {target.display_name}{prestige_str}"),
+            accessory=discord.ui.Thumbnail(media=target.display_avatar.url)
+        ))
+        
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(f"**Level**: {cur_level} | **Rank**: #{rank_pos} | **Prestige**: {prestige}")
+        ))
+        
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(f"**Progress**\n`{bar}` **{raw_xp:,}** / **{xp_needed:,}** XP")
+        ))
 
         next_reward_level = next((lvl for lvl in sorted(LEVEL_REWARDS) if lvl > cur_level), None)
         if next_reward_level:
@@ -76,13 +75,13 @@ class LevelingCog(commands.Cog, EconomyMixin, name="Leveling"):
                 reward_desc += f" + {itm.get('emoji', '📦')} {itm.get('name', r_item)}"
             if r_title:
                 reward_desc += f" + title **{r_title}**"
-            embed.add_field(
-                name=f"Next Reward (Level {next_reward_level})",
-                value=reward_desc,
-                inline=False,
-            )
+            container.add_item(discord.ui.Section(
+                discord.ui.TextDisplay(f"**Next Reward (Level {next_reward_level})**\n{reward_desc}")
+            ))
 
-        await interaction.response.send_message(embed=embed)
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view)
 
     @level_group.command(name="leaderboard", description="Top XP earners")
     async def xp_leaderboard(self, interaction: discord.Interaction):
@@ -99,7 +98,8 @@ class LevelingCog(commands.Cog, EconomyMixin, name="Leveling"):
             return await interaction.response.send_message("No XP data yet.", ephemeral=True)
 
         medals = ["1.", "2.", "3."]
-        embed = discord.Embed(title=f"{CROWN_EMOJI} XP Leaderboard", color=discord.Color.purple())
+        container = discord.ui.Container(accent_color=discord.Color.purple())
+        container.add_item(discord.ui.TextDisplay(f"## {CROWN_EMOJI} XP Leaderboard"))
         lines = []
         for i, (uid, xp, level, prestige) in enumerate(rows, start=1):
             try:
@@ -110,19 +110,21 @@ class LevelingCog(commands.Cog, EconomyMixin, name="Leveling"):
             p_str = f" {PRESTIGE_EMOJI}x{prestige}" if prestige > 0 else ""
             icon = medals[i - 1] if i <= 3 else f"{i}."
             lines.append(f"{icon} **{name}**{p_str} - Lv.**{level}** ({xp:,} XP)")
-        embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed)
+        container.add_item(discord.ui.TextDisplay("\n".join(lines)))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view)
 
     @level_group.command(name="rewards", description="View all level milestone rewards")
     async def level_rewards_cmd(self, interaction: discord.Interaction):
         from .economy_db import SHOP_ITEMS
 
         _, cur_level, _ = self.get_xp_row(interaction.user.id)
-        embed = discord.Embed(
-            title=f"{GIFT_EMOJI} Level Rewards",
-            description="Reach these levels for milestone rewards.",
-            color=discord.Color.gold(),
-        )
+        _, cur_level, _ = self.get_xp_row(interaction.user.id)
+        container = discord.ui.Container(accent_color=discord.Color.gold())
+        container.add_item(discord.ui.TextDisplay(f"## {GIFT_EMOJI} Level Rewards\nReach these levels for milestone rewards."))
+        
         for lvl in sorted(LEVEL_REWARDS):
             chips, item_key, title = LEVEL_REWARDS[lvl]
             parts = [fmt_chips(chips)]
@@ -132,12 +134,13 @@ class LevelingCog(commands.Cog, EconomyMixin, name="Leveling"):
             if title:
                 parts.append(f"Title: **{title}**")
             status = "Unlocked" if cur_level >= lvl else ("Next" if cur_level == lvl - 1 else "Locked")
-            embed.add_field(
-                name=f"{status} Level {lvl}",
-                value=" | ".join(parts),
-                inline=False,
-            )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            container.add_item(discord.ui.Section(
+                discord.ui.TextDisplay(f"**{status} Level {lvl}**\n{' | '.join(parts)}")
+            ))
+            
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
     @level_group.command(name="notifications", description="Enable or disable level-up DM notifications")
     @app_commands.describe(enabled="Turn DM level-up notifications on or off")
@@ -155,11 +158,11 @@ class LevelingCog(commands.Cog, EconomyMixin, name="Leveling"):
 
         from .economy_db import SHOP_ITEMS
 
-        embed = discord.Embed(
-            title=f"{LEVEL_EMOJI} Level Up!",
-            description=f"You reached **Level {levels[-1]}**!",
-            color=discord.Color.gold(),
-        )
+        container = discord.ui.Container(accent_color=discord.Color.gold())
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(f"## {LEVEL_EMOJI} Level Up!\nYou reached **Level {levels[-1]}**!"),
+            accessory=discord.ui.Thumbnail(media=user.display_avatar.url)
+        ))
 
         lines = []
         for level in levels:
@@ -178,10 +181,12 @@ class LevelingCog(commands.Cog, EconomyMixin, name="Leveling"):
                 line += f" - {' + '.join(rewards)}"
             lines.append(line)
 
-        embed.add_field(name="Levels Gained", value="\n".join(lines), inline=False)
-        embed.set_thumbnail(url=user.display_avatar.url)
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Levels Gained**\n" + "\n".join(lines))))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
         try:
-            await user.send(embed=embed)
+            await user.send(view=view)
         except discord.HTTPException:
             pass
 

@@ -12,23 +12,24 @@ from discord.ext import commands
 AVATAR_LOOKUP_ROLE_ID = 996368478216929371
 
 
-class AssetToggleView(discord.ui.View):
+class AssetToggleView(discord.ui.LayoutView):
     def __init__(
         self,
         requester_id: int,
-        global_embed: discord.Embed,
-        local_embed: discord.Embed | None,
+        global_container: discord.ui.Container,
+        local_container: discord.ui.Container | None,
         *,
         local_label: str,
     ):
         super().__init__(timeout=300)
         self.requester_id = requester_id
-        self.global_embed = global_embed
-        self.local_embed = local_embed
+        self.global_container = global_container
+        self.local_container = local_container
         self.global_button.label = "Global"
         self.local_button.label = local_label
-        self.local_button.disabled = local_embed is None
+        self.local_button.disabled = local_container is None
         self.global_button.disabled = False
+        self.add_item(global_container)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.requester_id:
@@ -38,14 +39,22 @@ class AssetToggleView(discord.ui.View):
 
     @discord.ui.button(style=discord.ButtonStyle.primary)
     async def global_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(embed=self.global_embed, view=self)
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Container):
+                self.remove_item(child)
+        self.add_item(self.global_container)
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(style=discord.ButtonStyle.secondary)
     async def local_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.local_embed is None:
+        if self.local_container is None:
             await interaction.response.send_message("No local asset is set for this user.", ephemeral=True)
             return
-        await interaction.response.edit_message(embed=self.local_embed, view=self)
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Container):
+                self.remove_item(child)
+        self.add_item(self.local_container)
+        await interaction.response.edit_message(view=self)
 
 
 class AdminCog(commands.Cog, name="Admin"):
@@ -96,15 +105,17 @@ class AdminCog(commands.Cog, name="Admin"):
         self.cursor.execute("SELECT SUM(count) FROM messages")
         total_messages = self.cursor.fetchone()[0] or 0
 
-        embed = discord.Embed(title="Debug", color=discord.Color.orange())
-        embed.add_field(name="Ping",            value=f"{round(self.bot.latency * 1000)} ms", inline=False)
-        embed.add_field(name="Stored Users",    value=users)
-        embed.add_field(name="Total Messages",  value=total_messages)
-        embed.add_field(name="Server",
-                        value=f"{interaction.guild.name}\nID: {interaction.guild.id}", inline=False)
-        embed.add_field(name="Channel",
-                        value=f"{interaction.channel.name}\nID: {interaction.channel.id}", inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        container = discord.ui.Container(accent_color=discord.Color.orange())
+        container.add_item(discord.ui.TextDisplay("## Debug"))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Ping**: {round(self.bot.latency * 1000)} ms")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Stored Users**: {users}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Total Messages**: {total_messages}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Server**: {interaction.guild.name}\nID: {interaction.guild.id}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Channel**: {interaction.channel.name}\nID: {interaction.channel.id}")))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
     @admin_group.command(name="echo", description="Send an admin message multiple times")
     @app_commands.checks.has_permissions(administrator=True)
@@ -150,26 +161,26 @@ class AdminCog(commands.Cog, name="Admin"):
         user: discord.Member | discord.User,
     ):
         global_avatar = user.avatar or user.default_avatar
-        global_embed = discord.Embed(
-            title=f"Global Avatar for {user}",
-            color=discord.Color.blurple(),
-        )
-        global_embed.add_field(name="Open", value=f"[Global Avatar]({global_avatar.url})", inline=False)
-        global_embed.set_image(url=global_avatar.url)
-        global_embed.set_thumbnail(url=global_avatar.url)
+        global_container = discord.ui.Container(accent_color=discord.Color.blurple())
+        global_container.add_item(discord.ui.TextDisplay(f"## Global Avatar for {user}"))
+        global_container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(f"**Open**: [Global Avatar]({global_avatar.url})"),
+            accessory=discord.ui.Thumbnail(media=global_avatar.url)
+        ))
+        global_container.add_item(discord.ui.MediaGallery().add_item(media=global_avatar.url))
 
-        local_embed = None
+        local_container = None
         if isinstance(user, discord.Member) and user.guild_avatar:
-            local_embed = discord.Embed(
-                title=f"Local Avatar for {user}",
-                color=discord.Color.blurple(),
-            )
-            local_embed.add_field(name="Open", value=f"[Local Avatar]({user.guild_avatar.url})", inline=False)
-            local_embed.set_image(url=user.guild_avatar.url)
-            local_embed.set_thumbnail(url=user.guild_avatar.url)
+            local_container = discord.ui.Container(accent_color=discord.Color.blurple())
+            local_container.add_item(discord.ui.TextDisplay(f"## Local Avatar for {user}"))
+            local_container.add_item(discord.ui.Section(
+                discord.ui.TextDisplay(f"**Open**: [Local Avatar]({user.guild_avatar.url})"),
+                accessory=discord.ui.Thumbnail(media=user.guild_avatar.url)
+            ))
+            local_container.add_item(discord.ui.MediaGallery().add_item(media=user.guild_avatar.url))
 
-        view = AssetToggleView(interaction.user.id, global_embed, local_embed, local_label="Local")
-        await interaction.response.send_message(embed=global_embed, view=view)
+        view = AssetToggleView(interaction.user.id, global_container, local_container, local_label="Local")
+        await interaction.response.send_message(view=view)
 
     @app_commands.command(name="banner", description="Show a user's server and global banners")
     @app_commands.check(
@@ -185,27 +196,23 @@ class AdminCog(commands.Cog, name="Admin"):
         global_banner = full_user.banner if full_user else None
         guild_banner = getattr(user, "guild_banner", None)
 
-        global_embed = discord.Embed(
-            title=f"Global Banner for {user}",
-            color=discord.Color.blurple(),
-        )
+        global_container = discord.ui.Container(accent_color=discord.Color.blurple())
+        global_container.add_item(discord.ui.TextDisplay(f"## Global Banner for {user}"))
         if global_banner:
-            global_embed.add_field(name="Open", value=f"[Global Banner]({global_banner.url})", inline=False)
-            global_embed.set_image(url=global_banner.url)
+            global_container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Open**: [Global Banner]({global_banner.url})")))
+            global_container.add_item(discord.ui.MediaGallery().add_item(media=global_banner.url))
         else:
-            global_embed.description = "This user does not have a global banner set."
+            global_container.add_item(discord.ui.TextDisplay("*This user does not have a global banner set.*"))
 
-        local_embed = None
+        local_container = None
         if guild_banner:
-            local_embed = discord.Embed(
-                title=f"Local Banner for {user}",
-                color=discord.Color.blurple(),
-            )
-            local_embed.add_field(name="Open", value=f"[Local Banner]({guild_banner.url})", inline=False)
-            local_embed.set_image(url=guild_banner.url)
+            local_container = discord.ui.Container(accent_color=discord.Color.blurple())
+            local_container.add_item(discord.ui.TextDisplay(f"## Local Banner for {user}"))
+            local_container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Open**: [Local Banner]({guild_banner.url})")))
+            local_container.add_item(discord.ui.MediaGallery().add_item(media=guild_banner.url))
 
-        view = AssetToggleView(interaction.user.id, global_embed, local_embed, local_label="Local")
-        await interaction.response.send_message(embed=global_embed, view=view)
+        view = AssetToggleView(interaction.user.id, global_container, local_container, local_label="Local")
+        await interaction.response.send_message(view=view)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
@@ -248,11 +255,14 @@ class AdminCog(commands.Cog, name="Admin"):
             return
 
         latest = recent[-1]
-        embed = discord.Embed(title="Most Recent Reaction", color=discord.Color.blurple())
-        embed.add_field(name="User", value=f"<@{latest['user_id']}>", inline=True)
-        embed.add_field(name="Emoji", value=latest["emoji"], inline=True)
-        embed.add_field(name="Message", value=latest["jump_url"], inline=False)
-        await ctx.send(embed=embed)
+        container = discord.ui.Container(accent_color=discord.Color.blurple())
+        container.add_item(discord.ui.TextDisplay("## Most Recent Reaction"))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**User**: <@{latest['user_id']}>\n**Emoji**: {latest['emoji']}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Message**: [Jump]({latest['jump_url']})")))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await ctx.send(view=view)
 
     @commands.command(name="p")
     @commands.has_permissions(manage_messages=True)

@@ -125,18 +125,22 @@ class BlackjackCog(commands.Cog, ChipsMixin, name="Blackjack"):
             payout = int(bet * 1.5)
             self.add_chips(uid, bet + payout)
             del self.games[interaction.channel.id]
-            embed = self._build_embed(game, reveal_dealer=True)
-            embed.title = f"{BLACKJACK_EMOJI} BLACKJACK!"
-            embed.color = discord.Color.gold()
-            embed.set_footer(text=f"You win {payout} chips! (1.5x payout)")
-            await interaction.response.send_message(embed=embed)
+            container = self._build_container(game, reveal_dealer=True)
+            container.children[0].content = f"## {BLACKJACK_EMOJI} BLACKJACK!"
+            container.accent_color = discord.Color.gold()
+            container.add_item(discord.ui.Separator())
+            container.add_item(discord.ui.TextDisplay(f"You win {payout} chips! (1.5x payout)"))
+            view = discord.ui.LayoutView()
+            view.add_item(container)
+            await interaction.response.send_message(view=view)
             return
 
         view = BlackjackView(interaction.channel.id, game, self)
-        embed = self._build_embed(game, reveal_dealer=False)
-        await interaction.response.send_message(f"{interaction.user.mention}", embed=embed, view=view)
+        container = self._build_container(game, reveal_dealer=False)
+        view.add_item(container)
+        await interaction.response.send_message(f"{interaction.user.mention}", view=view)
 
-    def _build_embed(self, game: dict, reveal_dealer: bool) -> discord.Embed:
+    def _build_container(self, game: dict, reveal_dealer: bool) -> discord.ui.Container:
         player_val = hand_value(game["player"])
         if reveal_dealer:
             dealer_display = format_hand(game["dealer"])
@@ -145,15 +149,14 @@ class BlackjackCog(commands.Cog, ChipsMixin, name="Blackjack"):
             dealer_display = f"{format_card(game['dealer'][0])}  {CARD_BACK}"
             dealer_label = "Dealer (??)"
 
-        embed = discord.Embed(
-            title=f"{SPADE_EMOJI} {HEART_EMOJI}  Blackjack  {DIAM_EMOJI} {CLUB_EMOJI}",
-            color=discord.Color.dark_green(),
-        )
-        embed.add_field(name=dealer_label, value=dealer_display, inline=False)
-        embed.add_field(name=f"You ({player_val})", value=format_hand(game["player"]), inline=False)
-        embed.add_field(name=f"{CHIP_EMOJI} Bet", value=f"**{game['bet']:,}**", inline=True)
-        embed.add_field(name="Balance", value=f"**{self.get_chips(game['uid']):,}**", inline=True)
-        return embed
+        container = discord.ui.Container(accent_color=discord.Color.dark_green())
+        container.add_item(discord.ui.TextDisplay(f"## {SPADE_EMOJI} {HEART_EMOJI} Blackjack {DIAM_EMOJI} {CLUB_EMOJI}"))
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**{dealer_label}**\n{dealer_display}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**You ({player_val})**\n{format_hand(game['player'])}")))
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {game['bet']:,} | **Balance**: {self.get_chips(game['uid']):,}")))
+        return container
 
     def resolve_game(self, channel_id: int) -> tuple:
         game = self.games.get(channel_id)
@@ -168,41 +171,50 @@ class BlackjackCog(commands.Cog, ChipsMixin, name="Blackjack"):
         dealer_value = hand_value(game["dealer"])
         bet = game["bet"]
 
-        embed = self._build_embed(game, reveal_dealer=True)
+        container = self._build_container(game, reveal_dealer=True)
 
         if player_value > 21:
-            result, delta, color = "Bust! You lose.", -bet, discord.Color.red()
+            result, color = "Bust! You lose.", discord.Color.red()
         elif dealer_value > 21 or player_value > dealer_value:
-            result, delta, color = f"{WIN_EMOJI} You win!", bet, discord.Color.green()
+            result, color = f"{WIN_EMOJI} You win!", discord.Color.green()
             self.add_chips(game["uid"], bet * 2)
         elif player_value == dealer_value:
-            result, delta, color = f"{PUSH_EMOJI} Push - bet returned.", 0, discord.Color.light_grey()
+            result, color = f"{PUSH_EMOJI} Push - bet returned.", discord.Color.light_grey()
             self.add_chips(game["uid"], bet)
         else:
-            result, delta, color = f"{LOSE_EMOJI} Dealer wins.", -bet, discord.Color.red()
+            result, color = f"{LOSE_EMOJI} Dealer wins.", discord.Color.red()
 
-        embed.color = color
-        embed.title = result
-        embed.set_footer(text=f"New balance: {self.get_chips(game['uid']):,} chips")
+        container.accent_color = color
+        container.children[0].content = f"## {result}"
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(f"New balance: {self.get_chips(game['uid']):,} chips"))
         del self.games[channel_id]
-        return embed, delta
+        return container
 
 
-class BlackjackView(discord.ui.View):
+class BlackjackView(discord.ui.LayoutView):
     def __init__(self, channel_id: int, game: dict, cog: BlackjackCog):
         super().__init__(timeout=120)
         self.channel_id = channel_id
         self.game = game
         self.cog = cog
 
+    def refresh_components(self, container: discord.ui.Container):
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Container):
+                self.remove_item(child)
+        self.add_item(container)
+
     async def on_timeout(self):
         game = self.cog.games.get(self.channel_id)
         if game and not game["done"]:
             game["done"] = True
             if self.channel_id in self.cog.games:
-                embed, _ = self.cog.resolve_game(self.channel_id)
-                if embed:
-                    embed.set_footer(text=embed.footer.text + " | Timed out - auto-stood")
+                container = self.cog.resolve_game(self.channel_id)
+                if container:
+                    container.add_item(discord.ui.TextDisplay(" | Timed out - auto-stood"))
+                    # Note: Need to send this container somehow, but timeout doesn't give interaction
+                    # For now just let it be.
 
     def _guard(self, interaction: discord.Interaction):
         game = self.cog.games.get(self.channel_id)
@@ -227,19 +239,23 @@ class BlackjackView(discord.ui.View):
 
         if player_value > 21:
             game["done"] = True
-            embed = self.cog._build_embed(game, reveal_dealer=True)
-            embed.title = "Bust! You lose."
-            embed.color = discord.Color.red()
-            embed.set_footer(text=f"New balance: {self.cog.get_chips(game['uid']):,} chips")
+            container = self.cog._build_container(game, reveal_dealer=True)
+            container.children[0].content = "## Bust! You lose."
+            container.accent_color = discord.Color.red()
+            container.add_item(discord.ui.Separator())
+            container.add_item(discord.ui.TextDisplay(f"New balance: {self.cog.get_chips(game['uid']):,} chips"))
             del self.cog.games[self.channel_id]
-            await interaction.response.edit_message(embed=embed, view=None)
+            self.refresh_components(container)
+            await interaction.response.edit_message(view=self)
         elif player_value == 21:
             game["done"] = True
-            embed, _ = self.cog.resolve_game(self.channel_id)
-            await interaction.response.edit_message(embed=embed, view=None)
+            container = self.cog.resolve_game(self.channel_id)
+            self.refresh_components(container)
+            await interaction.response.edit_message(view=self)
         else:
-            embed = self.cog._build_embed(game, reveal_dealer=False)
-            await interaction.response.edit_message(embed=embed, view=self)
+            container = self.cog._build_container(game, reveal_dealer=False)
+            self.refresh_components(container)
+            await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Stand 🛑", style=discord.ButtonStyle.danger, row=0)
     async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -248,8 +264,9 @@ class BlackjackView(discord.ui.View):
             await interaction.response.send_message(err, ephemeral=True)
             return
         game["done"] = True
-        embed, _ = self.cog.resolve_game(self.channel_id)
-        await interaction.response.edit_message(embed=embed, view=None)
+        container = self.cog.resolve_game(self.channel_id)
+        self.refresh_components(container)
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Double Down 💥", style=discord.ButtonStyle.success, row=0)
     async def double_down(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -271,9 +288,10 @@ class BlackjackView(discord.ui.View):
         game["deck"] = game["deck"] or build_deck()
         game["player"].append(game["deck"].pop())
         game["done"] = True
-        embed, _ = self.cog.resolve_game(self.channel_id)
-        embed.title = "Double Down: " + embed.title
-        await interaction.response.edit_message(embed=embed, view=None)
+        container = self.cog.resolve_game(self.channel_id)
+        container.children[0].content = "Double Down: " + container.children[0].content
+        self.refresh_components(container)
+        await interaction.response.edit_message(view=self)
 
 
 async def setup(bot: commands.Bot):

@@ -17,7 +17,7 @@ async def fetch_display_name(client: discord.Client, guild, user_id: int) -> str
     return user.name
 
 
-class LeaderboardView(discord.ui.View):
+class LeaderboardView(discord.ui.LayoutView):
     def __init__(self, interaction: discord.Interaction, users: list, page: int = 0):
         super().__init__(timeout=120)
         self.interaction = interaction
@@ -32,13 +32,13 @@ class LeaderboardView(discord.ui.View):
                 return index, count
         return None, 0
 
-    async def update_embed(self, interaction: discord.Interaction):
+    async def update_view(self, interaction: discord.Interaction):
         start = self.page * self.per_page
         end   = start + self.per_page
-        embed = discord.Embed(
-            title="<:pandatrophy:1479896789393084580> Message Leaderboard",
-            color=discord.Color.random(),
-        )
+        
+        container = discord.ui.Container(accent_color=discord.Color.random())
+        container.add_item(discord.ui.TextDisplay("## <:pandatrophy:1479896789393084580> Message Leaderboard"))
+        
         medals = [
             "<a:first:1479896994293219418>",
             "<a:second:1479896996331524229>",
@@ -50,7 +50,9 @@ class LeaderboardView(discord.ui.View):
             name = await fetch_display_name(interaction.client, guild, user_id)
             icon = medals[index - 1] if index <= 3 else f"`#{index}`"
             lines.append(f"{icon} **{name}** - `{count}` messages")
-        embed.description = "\n".join(lines) if lines else "No data."
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("\n".join(lines) if lines else "No data.")))
+        
         total_pages = ((len(self.users) - 1) // self.per_page) + 1
         rank, msgs  = self.get_user_rank()
         footer = (
@@ -58,8 +60,18 @@ class LeaderboardView(discord.ui.View):
             if rank else
             f"Page {self.page + 1}/{total_pages} | You are unranked"
         )
-        embed.set_footer(text=footer)
-        await interaction.edit_original_response(embed=embed, view=self)
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(footer))
+        
+        # We replace the container in the view children
+        # To keep buttons at the top, we should clear and re-add in correct order
+        # or just find the container
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Container):
+                self.remove_item(child)
+        self.add_item(container)
+        
+        await interaction.edit_original_response(view=self)
 
     @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
     async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -71,7 +83,7 @@ class LeaderboardView(discord.ui.View):
         await interaction.response.defer()
         if self.page > 0:
             self.page -= 1
-        await self.update_embed(interaction)
+        await self.update_view(interaction)
 
     @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -83,7 +95,7 @@ class LeaderboardView(discord.ui.View):
         await interaction.response.defer()
         if (self.page + 1) * self.per_page < len(self.users):
             self.page += 1
-        await self.update_embed(interaction)
+        await self.update_view(interaction)
 
 
 class StatsCog(commands.Cog, name="Stats"):
@@ -106,10 +118,9 @@ class StatsCog(commands.Cog, name="Stats"):
             return
 
         view  = LeaderboardView(interaction, sorted_users, page=0)
-        embed = discord.Embed(
-            title="<:pandatrophy:1479896789393084580> Message Leaderboard",
-            color=discord.Color.random(),
-        )
+        container = discord.ui.Container(accent_color=discord.Color.random())
+        container.add_item(discord.ui.TextDisplay("## <:pandatrophy:1479896789393084580> Message Leaderboard"))
+        
         medals = [
             "<a:first:1479896994293219418>",
             "<a:second:1479896996331524229>",
@@ -120,7 +131,8 @@ class StatsCog(commands.Cog, name="Stats"):
             name = await fetch_display_name(self.bot, interaction.guild, user_id)
             icon = medals[index - 1] if index <= 3 else f"`#{index}`"
             lines.append(f"{icon} **{name}** - `{count}` messages")
-        embed.description = "\n".join(lines)
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("\n".join(lines))))
 
         total_pages   = ((len(sorted_users) - 1) // 10) + 1
         user_rank     = None
@@ -135,8 +147,11 @@ class StatsCog(commands.Cog, name="Stats"):
             if user_rank else
             f"Page 1/{total_pages} | You are unranked"
         )
-        embed.set_footer(text=footer)
-        await interaction.followup.send(embed=embed, view=view)
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(footer))
+        
+        view.add_item(container)
+        await interaction.followup.send(view=view)
 
     @stats_group.command(name="rank", description="See your leaderboard rank")
     async def rank(self, interaction: discord.Interaction):
@@ -156,25 +171,31 @@ class StatsCog(commands.Cog, name="Stats"):
                 user_rank = index
                 break
 
-        embed = discord.Embed(title="<:award:1493499416231809084> Your Rank", color=discord.Color.random())
+        container = discord.ui.Container(accent_color=discord.Color.random())
+        container.add_item(discord.ui.TextDisplay("## <:award:1493499416231809084> Your Rank"))
         if user_rank:
             if user_rank > 1:
                 _, above_messages = sorted_users[user_rank - 2]
                 messages_needed   = above_messages - user_messages + 1
-                embed.description = (
+                desc = (
                     f"<:award:1493499416231809084> **Rank:** `#{user_rank}`\n"
                     f"<:messagecircle:1493499402076160021> **Messages:** `{user_messages}`\n"
                     f"<:chevronsup:1493499410892718163> **To rank up:** `{messages_needed}` more messages"
                 )
             else:
-                embed.description = (
+                desc = (
                     f"<:award:1493499416231809084> **Rank:** `#1`\n"
                     f"<:messagecircle:1493499402076160021> **Messages:** `{user_messages}`\n"
                     f"<:zap:1493499390520852610> You are the top chatter!"
                 )
         else:
-            embed.description = "<:messagecircle:1493499402076160021> You have no counted messages yet."
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            desc = "<:messagecircle:1493499402076160021> You have no counted messages yet."
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(desc)))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

@@ -1,0 +1,851 @@
+
+Container
+
+class discord.ui.Container(*children, accent_colour=None, accent_color=None, spoiler=False, id=None)
+Attributes
+
+    accent_color
+    accent_colour
+    children
+    id
+    parent
+    view
+
+Methods
+
+    add_item
+    clear_items
+    content_length
+    find_item
+    interaction_check
+    remove_item
+    walk_children
+
+    Represents a UI container.
+
+    This is a top-level layout component that can only be used on LayoutView and can contain ActionRows, TextDisplays, Sections, MediaGallerys, Files, and Separators in it.
+
+    This can be inherited.
+
+    New in version 2.6.
+
+    Examples
+    content_copy
+
+    import discord
+    from discord import ui
+
+    # you can subclass it and add components as you would add them
+    # in a LayoutView
+    class MyContainer(ui.Container):
+        action_row = ui.ActionRow()
+
+        @action_row.button(label='A button in a container!')
+        async def a_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await interaction.response.send_message('You clicked a button!')
+
+    # or use it directly on LayoutView
+    class MyView(ui.LayoutView):
+        container = ui.Container(ui.TextDisplay('I am a text display on a container!'))
+        # or you can use your subclass:
+        # container = MyContainer()
+
+    Parameters
+
+            *children (Item) – The initial children of this container.
+
+            accent_colour (Optional[Union[Colour, int]]) – The colour of the container. Defaults to None.
+
+            accent_color (Optional[Union[Colour, int]]) – The color of the container. Defaults to None.
+
+            spoiler (bool) – Whether to flag this container as a spoiler. Defaults to False.
+
+            id (Optional[int]) – The ID of this component. This must be unique across the view.
+
+    property id
+
+        The ID of this component.
+
+        Type
+
+            Optional[int]
+
+    property children
+
+        The children of this container.
+
+        Type
+
+            List[Item]
+
+    property accent_colour
+
+        The colour of the container, or None.
+
+        Type
+
+            Optional[Union[discord.Colour, int]]
+
+    property accent_color
+
+        The colour of the container, or None.
+
+        Type
+
+            Optional[Union[discord.Colour, int]]
+
+    for ... in walk_children()
+
+        An iterator that recursively walks through all the children of this container and its children, if applicable.
+
+        Yields
+
+            Item – An item in the container.
+
+    content_length()
+
+        int: Returns the total length of all text content in this container.
+
+    add_item(item)
+
+        Adds an item to this container.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+            item (Item) – The item to append.
+        Raises
+
+                TypeError – An Item was not passed.
+
+                ValueError – Maximum number of children has been exceeded (40) for the entire view.
+
+    remove_item(item)
+
+        Removes an item from this container.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+            item (Item) – The item to remove from the container.
+
+    find_item(id, /)
+
+        Gets an item with Item.id set as id, or None if not found.
+
+        This is not the same as custom_id.
+
+        Parameters
+
+            id (int) – The ID of the component.
+        Returns
+
+            The item found, or None.
+        Return type
+
+            Optional[Item]
+
+    clear_items()
+
+        Removes all the items from the container.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+    await interaction_check(interaction, /)
+
+        This function is a coroutine.
+
+        A callback that is called when an interaction happens within this item that checks whether the callback should be processed.
+
+        This is useful to override if, for example, you want to ensure that the interaction author is a given user.
+
+        The default implementation of this returns True.
+
+        If an exception occurs within the body then the check is considered a failure and View.on_error() (or LayoutView.on_error()) is called.
+
+        For DynamicItem this does not call the on_error handler.
+
+        New in version 2.4.
+
+        Parameters
+
+            interaction (Interaction) – The interaction that occurred.
+        Returns
+
+            Whether the callback should be called.
+        Return type
+
+            bool
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+File
+
+class discord.ui.File(media, *, spoiler=..., id=None)
+Attributes
+
+    id
+    media
+    parent
+    spoiler
+    url
+    view
+
+    Represents a UI file component.
+
+    This is a top-level layout component that can only be used on LayoutView.
+
+    New in version 2.6.
+
+    Example
+    content_copy
+
+    import discord
+    from discord import ui
+
+    class MyView(ui.LayoutView):
+        file = ui.File('attachment://file.txt')
+        # attachment://file.txt points to an attachment uploaded alongside this view
+
+    Parameters
+
+            media (Union[str, UnfurledMediaItem, discord.File]) – This file’s media. If this is a string it must point to a local file uploaded within the parent view of this item, and must meet the attachment://<filename> format.
+
+            spoiler (bool) – Whether to flag this file as a spoiler. Defaults to False.
+
+            id (Optional[int]) – The ID of this component. This must be unique across the view.
+
+    property id
+
+        The ID of this file component.
+
+        Type
+
+            Optional[int]
+
+    property media
+
+        Returns this file media.
+
+        Type
+
+            UnfurledMediaItem
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property url
+
+        Returns this file’s url.
+
+        Type
+
+            str
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+    property spoiler
+
+        Returns whether this file should be flagged as a spoiler.
+
+        Type
+
+            bool
+
+Label
+
+class discord.ui.Label(*, text, component, description=None, id=None)
+Attributes
+
+    component
+    description
+    id
+    parent
+    text
+    view
+
+    Represents a UI label within a modal.
+
+    This is a top-level layout component that can only be used on Modal.
+
+    New in version 2.6.
+
+    Parameters
+
+            text (str) – The text to display above the input field. Can only be up to 45 characters.
+
+            description (Optional[str]) – The description text to display right below the label text. Can only be up to 100 characters.
+
+            component (Item) – The component to display below the label.
+
+            id (Optional[int]) – The ID of the component. This must be unique across the view.
+
+    text
+
+        The text to display above the input field. Can only be up to 45 characters.
+
+        Type
+
+            str
+
+    description
+
+        The description text to display right below the label text. Can only be up to 100 characters.
+
+        Type
+
+            Optional[str]
+
+    component
+
+        The component to display below the label.
+
+        Type
+
+            Item
+
+    property id
+
+        The ID of this component.
+
+        Type
+
+            Optional[int]
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+MediaGallery
+
+class discord.ui.MediaGallery(*items, id=None)
+Attributes
+
+    id
+    items
+    parent
+    view
+
+Methods
+
+    add_item
+    append_item
+    clear_items
+    insert_item_at
+    remove_item
+
+    Represents a UI media gallery.
+
+    Can contain up to 10 MediaGalleryItems.
+
+    This is a top-level layout component that can only be used on LayoutView.
+
+    New in version 2.6.
+
+    Parameters
+
+            *items (MediaGalleryItem) – The initial items of this gallery.
+
+            id (Optional[int]) – The ID of this component. This must be unique across the view.
+
+    property items
+
+        Returns a read-only list of this gallery’s items.
+
+        Type
+
+            List[MediaGalleryItem]
+
+    property id
+
+        The ID of this component.
+
+        Type
+
+            Optional[int]
+
+    add_item(*, media, description=..., spoiler=...)
+
+        Adds an item to this gallery.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+                media (Union[str, discord.File, UnfurledMediaItem]) – The media item data. This can be a string representing a local file uploaded as an attachment in the message, which can be accessed using the attachment://<filename> format, or an arbitrary url.
+
+                description (Optional[str]) – The description to show within this item. Up to 256 characters. Defaults to None.
+
+                spoiler (bool) – Whether this item should be flagged as a spoiler. Defaults to False.
+
+        Raises
+
+            ValueError – Maximum number of items has been exceeded (10).
+
+    append_item(item)
+
+        Appends an item to this gallery.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+            item (MediaGalleryItem) – The item to add to the gallery.
+        Raises
+
+                TypeError – A MediaGalleryItem was not passed.
+
+                ValueError – Maximum number of items has been exceeded (10).
+
+    insert_item_at(index, *, media, description=..., spoiler=...)
+
+        Inserts an item before a specified index to the media gallery.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+                index (int) – The index of where to insert the field.
+
+                media (Union[str, discord.File, UnfurledMediaItem]) – The media item data. This can be a string representing a local file uploaded as an attachment in the message, which can be accessed using the attachment://<filename> format, or an arbitrary url.
+
+                description (Optional[str]) – The description to show within this item. Up to 256 characters. Defaults to None.
+
+                spoiler (bool) – Whether this item should be flagged as a spoiler. Defaults to False.
+
+        Raises
+
+            ValueError – Maximum number of items has been exceeded (10).
+
+    remove_item(item)
+
+        Removes an item from the gallery.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+            item (MediaGalleryItem) – The item to remove from the gallery.
+
+    clear_items()
+
+        Removes all items from the gallery.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+Section
+
+class discord.ui.Section(*children, accessory, id=None)
+Attributes
+
+    accessory
+    children
+    id
+    parent
+    view
+
+Methods
+
+    add_item
+    clear_items
+    content_length
+    find_item
+    interaction_check
+    remove_item
+    walk_children
+
+    Represents a UI section.
+
+    This is a top-level layout component that can only be used on LayoutView.
+
+    New in version 2.6.
+
+    Parameters
+
+            *children (Union[str, TextDisplay]) – The text displays of this section. Up to 3.
+
+            accessory (Item) – The section accessory. This is usually either a Button or Thumbnail.
+
+            id (Optional[int]) – The ID of this component. This must be unique across the view.
+
+    property id
+
+        The ID of this component.
+
+        Type
+
+            Optional[int]
+
+    property children
+
+        The list of children attached to this section.
+
+        Type
+
+            List[Item]
+
+    property accessory
+
+        The section’s accessory.
+
+        Type
+
+            Item
+
+    for ... in walk_children()
+
+        An iterator that recursively walks through all the children of this section and its children, if applicable. This includes the accessory.
+
+        Yields
+
+            Item – An item in this section.
+
+    content_length()
+
+        int: Returns the total length of all text content in this section.
+
+    add_item(item)
+
+        Adds an item to this section.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+            item (Union[str, Item]) – The item to append, if it is a string it automatically wrapped around TextDisplay.
+        Raises
+
+                TypeError – An Item or str was not passed.
+
+                ValueError – Maximum number of children has been exceeded (3) or (40) for the entire view.
+
+    remove_item(item)
+
+        Removes an item from this section.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+        Parameters
+
+            item (Item) – The item to remove from the section.
+
+    find_item(id, /)
+
+        Gets an item with Item.id set as id, or None if not found.
+
+        This is not the same as custom_id.
+
+        Parameters
+
+            id (int) – The ID of the component.
+        Returns
+
+            The item found, or None.
+        Return type
+
+            Optional[Item]
+
+    clear_items()
+
+        Removes all the items from the section.
+
+        This function returns the class instance to allow for fluent-style chaining.
+
+    await interaction_check(interaction, /)
+
+        This function is a coroutine.
+
+        A callback that is called when an interaction happens within this item that checks whether the callback should be processed.
+
+        This is useful to override if, for example, you want to ensure that the interaction author is a given user.
+
+        The default implementation of this returns True.
+
+        If an exception occurs within the body then the check is considered a failure and View.on_error() (or LayoutView.on_error()) is called.
+
+        For DynamicItem this does not call the on_error handler.
+
+        New in version 2.4.
+
+        Parameters
+
+            interaction (Interaction) – The interaction that occurred.
+        Returns
+
+            Whether the callback should be called.
+        Return type
+
+            bool
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+Separator
+
+class discord.ui.Separator(*, visible=True, spacing=<SeparatorSpacing.small: 1>, id=None)
+Attributes
+
+    id
+    parent
+    spacing
+    view
+    visible
+
+    Represents a UI separator.
+
+    This is a top-level layout component that can only be used on LayoutView.
+
+    New in version 2.6.
+
+    Parameters
+
+            visible (bool) – Whether this separator is visible. On the client side this is whether a divider line should be shown or not.
+
+            spacing (SeparatorSpacing) – The spacing of this separator.
+
+            id (Optional[int]) – The ID of this component. This must be unique across the view.
+
+    property id
+
+        The ID of this separator.
+
+        Type
+
+            Optional[int]
+
+    property visible
+
+        Whether this separator is visible.
+
+        On the client side this is whether a divider line should be shown or not.
+
+        Type
+
+            bool
+
+    property spacing
+
+        The spacing of this separator.
+
+        Type
+
+            SeparatorSpacing
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+TextDisplay
+
+class discord.ui.TextDisplay(content, *, id=None)
+Attributes
+
+    id
+    parent
+    view
+
+    Represents a UI text display.
+
+    This is a top-level layout component that can only be used on LayoutView, Section, Container, or Modal.
+
+    New in version 2.6.
+
+    Parameters
+
+            content (str) – The content of this text display. Up to 4000 characters.
+
+            id (Optional[int]) – The ID of this component. This must be unique across the view.
+
+    property id
+
+        The ID of this component.
+
+        Type
+
+            Optional[int]
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+Thumbnail
+
+class discord.ui.Thumbnail(media, *, description=..., spoiler=..., id=None)
+Attributes
+
+    id
+    media
+    parent
+    view
+
+    Represents a UI Thumbnail. This currently can only be used as a Section’s accessory.
+
+    New in version 2.6.
+
+    Parameters
+
+            media (Union[str, discord.File, discord.UnfurledMediaItem]) – The media of the thumbnail. This can be a URL or a reference to an attachment that matches the attachment://filename.extension structure.
+
+            description (Optional[str]) – The description of this thumbnail. Up to 256 characters. Defaults to None.
+
+            spoiler (bool) – Whether to flag this thumbnail as a spoiler. Defaults to False.
+
+            id (Optional[int]) – The ID of this component. This must be unique across the view.
+
+    property id
+
+        The ID of this component.
+
+        Type
+
+            Optional[int]
+
+    property media
+
+        This thumbnail unfurled media data.
+
+        Type
+
+            discord.UnfurledMediaItem
+
+    property parent
+
+        This item’s parent, if applicable. Only available on items with children.
+
+        New in version 2.6.
+
+        Type
+
+            Optional[Item]
+
+    property view
+
+        The underlying view for this item.
+
+        Type
+
+            Optional[Union[View, LayoutView]]
+
+Rules:
+Section: has to include at least one Text Display AND an thumbnail or Button Accessory
+Pings: When not edited via {allowed_mentions:{parse:[]}}, it will ping all pings inside. its good practice to parse[], if there is no need to pings someone
+General: You cant include Embeds/Content when sending ComponentV2 MessageActionRowComponentBuilder
+Sending: When you send componentV2 message: {components: [Array of ContainerBuilders (preferably only one ContainerBuilder per message)], flags: 32768}
+Example: to Replicate an Embed you would use (in javascript:) ContainerBuilder().addTextDisplayComponents(new TextDisplayBuilder.setContent("## Title")).addSeperatorComponents(true).addSectionComponents(new SectionBuilder().addTextDisplayComponents(new TextDisplayBuilder.setContent("description").setThumbnailAccessory(new ThumbnailBuilder().setURL("thumnailurl"))...)), You will have to get the gist how to do this in discord.py yourself.
+Discord Markdown Guide: "### text" : H3 -> slightly bigger + bolded to normal Text, "## text" : H2 -> significantly bigger than normal text, comparable to embed titles, "# text" : H1 -> Really large text, e.g. for important headlines, "-# text" -> Small text, more greyish for e.g. not so important statements or to keep the menu smaller, "> text" -> grey text + adds a "tab" to texts. this can be combined with size modifications e.g. "## > text" used to e.g. highlight an information, ```css\ntext``` -> syntax highlighting code block, can be easily copypasted by clients, `text` -> inline codeblock, **bold**, *italic*, ~~striketrough~~
+Timestamp Markdowns: 
+<t:1777111711:F>	Saturday, April 25, 2026 at 12:08 PM	
+<t:1777111711:f>	April 25, 2026 at 12:08 PM	
+<t:1777111711:D>	April 25, 2026	
+<t:1777111711:d>	04/25/2026	
+<t:1777111711:t>	12:08 PM -> to show when something happens in the current day
+<t:1777111711:T>	12:08:31 PM	
+<t:1777111711:R>	54 seconds ago	-> most used for e.g. "Cooldown ends <t:1777111711:R>"
+<t:1777111711:s>	04/25/2026, 12:08 PM	
+<t:1777111711:S>	04/25/2026, 12:08:31 PM

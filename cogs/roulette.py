@@ -126,25 +126,34 @@ class RouletteCog(commands.Cog, ChipsMixin, name="Roulette"):
             embed_color = discord.Color.red()
 
         balance = self.get_chips(uid)
-        embed = discord.Embed(title=title, color=embed_color)
-        embed.add_field(name=f"{ROULETTE_BALL} Your Bet", value=description, inline=False)
-        embed.add_field(name=f"{ROULETTE_WHEEL} Landed On", value=f"{color} **{result}**", inline=True)
-        embed.add_field(name=f"{CHIP_EMOJI} Bet", value=f"**{bet:,}**", inline=True)
-        embed.add_field(name=f"{CHIP_EMOJI} Balance", value=f"**{balance:,}**", inline=True)
-        embed.set_footer(text=f"Payout: {payout}x  |  @{interaction.user.display_name}")
-        await interaction.followup.send(embed=embed)
+        balance = self.get_chips(uid)
+        container = discord.ui.Container(accent_color=embed_color)
+        container.add_item(discord.ui.TextDisplay(f"## {title}"))
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{ROULETTE_BALL} **Your Bet**: {description}")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{ROULETTE_WHEEL} **Landed On**: {color} **{result}**")))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {bet:,} | **Balance**: {balance:,}")))
+        
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(f"Payout: {payout}x  |  @{interaction.user.display_name}"))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.followup.send(view=view)
 
     @rou_group.command(name="table", description="Show payout reference table")
     async def rou_table(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="Roulette Payout Table",
-            color=discord.Color.blurple(),
-            description="All payouts shown as X to 1 (your bet is returned on win)",
-        )
+        container = discord.ui.Container(accent_color=discord.Color.blurple())
+        container.add_item(discord.ui.TextDisplay("## Roulette Payout Table\nAll payouts shown as X to 1 (your bet is returned on win)"))
+        
         lines = [f"`{name:<8}` - {description} -> **{mult}x**" for name, (description, mult, _) in BET_TYPES.items()]
         lines.append("`straight` - Single number (0-36) -> **35x**")
-        embed.description += "\n\n" + "\n".join(lines)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay("\n".join(lines))))
+        
+        view = discord.ui.LayoutView()
+        view.add_item(container)
+        await interaction.response.send_message(view=view, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
