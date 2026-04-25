@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 cogs/admin.py  –  Admin commands: resetuser, resetall, debug, findreaction
 """
@@ -25,15 +26,21 @@ class AssetToggleView(discord.ui.LayoutView):
         self.requester_id = requester_id
         self.global_container = global_container
         self.local_container = local_container
-        self.global_button.label = "Global"
-        self.local_button.label = local_label
+        
+        self.global_button = discord.ui.Button(style=discord.ButtonStyle.primary, label="Global")
+        self.global_button.callback = self.global_button_callback
+        
+        self.local_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label=local_label)
         self.local_button.disabled = local_container is None
-        self.global_button.disabled = False
+        self.local_button.callback = self.local_button_callback
+        
+        self._cached_buttons = [self.global_button, self.local_button]
         self.refresh_components(global_container)
 
     def refresh_components(self, container: discord.ui.Container):
         self.clear_items()
-        container.add_item(discord.ui.ActionRow(self.global_button, self.local_button))
+        if self._cached_buttons:
+            container.add_item(discord.ui.ActionRow(*self._cached_buttons))
         self.add_item(container)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -42,13 +49,11 @@ class AssetToggleView(discord.ui.LayoutView):
             return False
         return True
 
-    @discord.ui.button(style=discord.ButtonStyle.primary)
-    async def global_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def global_button_callback(self, interaction: discord.Interaction):
         self.refresh_components(self.global_container)
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(style=discord.ButtonStyle.secondary)
-    async def local_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def local_button_callback(self, interaction: discord.Interaction):
         if self.local_container is None:
             await interaction.response.send_message("No local asset is set for this user.", ephemeral=True)
             return
@@ -59,8 +64,12 @@ class AssetToggleView(discord.ui.LayoutView):
 class AdminCog(commands.Cog, name="Admin"):
     """Administrative commands."""
 
-    MAX_REPEAT = 20
-    MIN_DELAY_SECONDS = 1.0
+MAX_REPEAT = 20
+MIN_DELAY_SECONDS = 1.0
+
+
+class AdminCog(commands.Cog, name="Admin"):
+    """Administrative commands."""
 
     def __init__(self, bot: commands.Bot):
         self.bot    = bot

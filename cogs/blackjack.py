@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 cogs/blackjack.py - Blackjack with chips
 """
@@ -194,14 +195,26 @@ class BlackjackCog(commands.Cog, ChipsMixin, name="Blackjack"):
 
 class BlackjackView(discord.ui.LayoutView):
     def __init__(self, channel_id: int, game: dict, cog: BlackjackCog):
-        super().__init__(timeout=120)
+        super().__init__(timeout=180)
         self.channel_id = channel_id
         self.game = game
         self.cog = cog
+        
+        self.hit_button = discord.ui.Button(label="Hit 🃏", style=discord.ButtonStyle.primary)
+        self.hit_button.callback = self.hit_callback
+        
+        self.stand_button = discord.ui.Button(label="Stand 🛑", style=discord.ButtonStyle.danger)
+        self.stand_button.callback = self.stand_callback
+        
+        self.double_down_button = discord.ui.Button(label="Double Down 💥", style=discord.ButtonStyle.success)
+        self.double_down_button.callback = self.double_down_callback
+        
+        self._cached_buttons = [self.hit_button, self.stand_button, self.double_down_button]
 
     def refresh_components(self, container: discord.ui.Container):
         self.clear_items()
-        container.add_item(discord.ui.ActionRow(self.hit, self.stand, self.double_down))
+        if self._cached_buttons:
+            container.add_item(discord.ui.ActionRow(*self._cached_buttons))
         self.add_item(container)
 
     async def on_timeout(self):
@@ -225,8 +238,7 @@ class BlackjackView(discord.ui.LayoutView):
             return None, "Game already finished."
         return game, None
 
-    @discord.ui.button(label="Hit 🃏", style=discord.ButtonStyle.primary, row=0)
-    async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def hit_callback(self, interaction: discord.Interaction):
         game, err = self._guard(interaction)
         if err:
             await interaction.response.send_message(err, ephemeral=True)
@@ -256,8 +268,7 @@ class BlackjackView(discord.ui.LayoutView):
             self.refresh_components(container)
             await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Stand 🛑", style=discord.ButtonStyle.danger, row=0)
-    async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def stand_callback(self, interaction: discord.Interaction):
         game, err = self._guard(interaction)
         if err:
             await interaction.response.send_message(err, ephemeral=True)
@@ -267,8 +278,7 @@ class BlackjackView(discord.ui.LayoutView):
         self.refresh_components(container)
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Double Down 💥", style=discord.ButtonStyle.success, row=0)
-    async def double_down(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def double_down_callback(self, interaction: discord.Interaction):
         game, err = self._guard(interaction)
         if err:
             await interaction.response.send_message(err, ephemeral=True)

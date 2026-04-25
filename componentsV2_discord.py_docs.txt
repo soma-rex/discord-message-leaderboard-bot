@@ -833,7 +833,7 @@ Attributes
             Optional[Union[View, LayoutView]]
 
 Rules:
-Section: has to include at least one Text Display AND an thumbnail or Button Accessory
+Section: has to include at least one Text Display AND an thumbnail or Button Accessory. Cant be just a TextDisplay
 Pings: When not edited via {allowed_mentions:{parse:[]}}, it will ping all pings inside. its good practice to parse[], if there is no need to pings someone
 General: You cant include Embeds/Content when sending ComponentV2 MessageActionRowComponentBuilder
 Sending: When you send componentV2 message: {components: [Array of ContainerBuilders (preferably only one ContainerBuilder per message)], flags: 32768}
@@ -849,3 +849,12 @@ Timestamp Markdowns:
 <t:1777111711:R>	54 seconds ago	-> most used for e.g. "Cooldown ends <t:1777111711:R>"
 <t:1777111711:s>	04/25/2026, 12:08 PM	
 <t:1777111711:S>	04/25/2026, 12:08:31 PM
+
+Additional:
+Top level components can either be
+ContainerBuilder
+Action Row
+SelectMenu
+
+Nested Componenets (inside Containers) can be:
+All Component Types

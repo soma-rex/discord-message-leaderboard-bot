@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 cogs/slots.py - Slot machine with chips and continuous spinning
 """
@@ -67,10 +68,19 @@ class SlotsView(discord.ui.LayoutView):
         self.user_id = user_id
         self.bet = bet
         self.spins = 0
+        
+        self.spin_button = discord.ui.Button(label="Spin Again", style=discord.ButtonStyle.green, emoji=SPIN_EMOJI)
+        self.spin_button.callback = self.spin_button_callback
+        
+        self.cashout_button = discord.ui.Button(label="Cash Out", style=discord.ButtonStyle.red, emoji=MONEYBAG_EMOJI)
+        self.cashout_button.callback = self.cashout_button_callback
+        
+        self._cached_buttons = [self.spin_button, self.cashout_button]
 
     def refresh_components(self, container: discord.ui.Container):
         self.clear_items()
-        container.add_item(discord.ui.ActionRow(self.spin_button, self.cashout_button))
+        if self._cached_buttons:
+            container.add_item(discord.ui.ActionRow(*self._cached_buttons))
         self.add_item(container)
 
     async def update_container(self, interaction: discord.Interaction) -> tuple[discord.ui.Container, bool]:
@@ -122,8 +132,7 @@ class SlotsView(discord.ui.LayoutView):
 
         return container, True
 
-    @discord.ui.button(label="Spin Again", style=discord.ButtonStyle.green, emoji=SPIN_EMOJI)
-    async def spin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def spin_button_callback(self, interaction: discord.Interaction):
         """Handle spin button click."""
         # Only allow the original user to spin
         if interaction.user.id != self.user_id:
@@ -146,8 +155,7 @@ class SlotsView(discord.ui.LayoutView):
         else:
             await interaction.edit_original_response(view=self)
 
-    @discord.ui.button(label="Cash Out", style=discord.ButtonStyle.red, emoji=MONEYBAG_EMOJI)
-    async def cashout_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def cashout_button_callback(self, interaction: discord.Interaction):
         """Handle cash out button click."""
         # Only allow the original user to cash out
         if interaction.user.id != self.user_id:

@@ -1,7 +1,8 @@
+from __future__ import annotations
 import asyncio
 import random
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 import discord
 from discord import app_commands
@@ -422,7 +423,7 @@ class UnoGame:
         return sorted(((player.display_name, player.points()) for player in self.players), key=lambda item: item[1])
 
 
-def make_game_container(game: UnoGame, extra_text: str = "", view: "GameView" | None = None) -> discord.ui.Container:
+def make_game_container(game: UnoGame, extra_text: str = "", view: GameView | None = None) -> discord.ui.Container:
     top = game.top_card
     color_hex = COLOR_HEX.get(top.effective_color.value, 0x95A5A6)
     mode_label = "Classic UNO" if game.mode == GameMode.CLASSIC else "UNO No Mercy"
@@ -453,12 +454,12 @@ def make_game_container(game: UnoGame, extra_text: str = "", view: "GameView" | 
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay("Use the buttons below or /uno hand to see your cards."))
     
-    if view:
-        container.add_item(discord.ui.ActionRow(view.play_card, view.draw_card, view.end_turn, view.call_uno))
+    if buttons:
+        container.add_item(discord.ui.ActionRow(*buttons))
     return container
 
 
-def make_hand_container(player: Player, game: UnoGame, page: int = 0, view: "CardPickerView" | None = None) -> discord.ui.Container:
+def make_hand_container(player: Player, game: UnoGame, page: int = 0, view: CardPickerView | None = None, buttons: list[discord.ui.Button] | None = None) -> discord.ui.Container:
     top = game.top_card
     start = page * 25
     end = start + 25
@@ -485,13 +486,14 @@ def make_hand_container(player: Player, game: UnoGame, page: int = 0, view: "Car
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(f"Page {page + 1}/{total_pages} | ✅ playable | ❌ blocked"))
     
+    if buttons:
+        container.add_item(discord.ui.ActionRow(*buttons))
     if view:
-        container.add_item(discord.ui.ActionRow(view.previous_page, view.next_page))
         container.add_item(discord.ui.ActionRow(CardSelect(view)))
     return container
 
 
-def make_lobby_container(game: UnoGame, view: "LobbyView" | None = None) -> discord.ui.Container:
+def make_lobby_container(game: UnoGame, buttons: list[discord.ui.Button] | None = None) -> discord.ui.Container:
     mode_label = "Classic UNO" if game.mode == GameMode.CLASSIC else "UNO No Mercy"
     container = discord.ui.Container(accent_color=discord.Color.blurple())
     container.add_item(discord.ui.TextDisplay(f"## {mode_label} Lobby"))
@@ -501,8 +503,8 @@ def make_lobby_container(game: UnoGame, view: "LobbyView" | None = None) -> disc
         f"Host: **{game.host_id}**\nPress **Join Game** to join.\nHost presses **Start Game** when ready.\n\n**Players:**\n{player_list}"
     ))
 
-    if view:
-        container.add_item(discord.ui.ActionRow(view.join, view.start))
+    if buttons:
+        container.add_item(discord.ui.ActionRow(*buttons))
     return container
 
 
@@ -679,14 +681,21 @@ class CardPickerView(discord.ui.LayoutView):
         self.page = 0
         self.expected_turn_index = game.turn_index
         self.expected_discard_count = len(game.discard_pile)
+        
+        self.prev_button = discord.ui.Button(label="Prev", style=discord.ButtonStyle.secondary)
+        self.prev_button.callback = self.previous_page_callback
+        
+        self.next_button = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary)
+        self.next_button.callback = self.next_page_callback
+        
+        self._cached_buttons = [self.prev_button, self.next_button]
         self.refresh_components()
 
     def refresh_components(self):
         self.clear_items()
-        self.add_item(make_hand_container(self.player, self.game, self.page, self))
+        self.add_item(make_hand_container(self.player, self.game, self.page, self, buttons=self._cached_buttons))
 
-    @discord.ui.button(label="Prev", style=discord.ButtonStyle.secondary, row=1)
-    async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def previous_page_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.player.id:
             await interaction.response.send_message("Not your hand.", ephemeral=True)
             return
@@ -694,8 +703,7 @@ class CardPickerView(discord.ui.LayoutView):
         self.refresh_components()
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=1)
-    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def next_page_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.player.id:
             await interaction.response.send_message("Not your hand.", ephemeral=True)
             return
@@ -721,17 +729,33 @@ class GameView(discord.ui.LayoutView):
         self.cog = cog
         self.game = game
         self.extra_text = extra_text
+        
+        self.play_card_btn = discord.ui.Button(label="Play Card", style=discord.ButtonStyle.primary)
+        self.play_card_btn.callback = self.play_card_callback
+        
+        self.draw_card_btn = discord.ui.Button(label="Draw Card", style=discord.ButtonStyle.secondary)
+        self.draw_card_btn.callback = self.draw_card_callback
+        
+        self.end_turn_btn = discord.ui.Button(label="End Turn", style=discord.ButtonStyle.secondary)
+        self.end_turn_btn.callback = self.end_turn_callback
+        
+        self.call_uno_btn = discord.ui.Button(label="Call UNO", style=discord.ButtonStyle.danger)
+        self.call_uno_btn.callback = self.call_uno_callback
+        
+        self.show_hand_btn = discord.ui.Button(label="Show Hand", style=discord.ButtonStyle.success)
+        self.show_hand_btn.callback = self.show_hand_callback
+        
+        self._cached_buttons = [self.play_card_btn, self.draw_card_btn, self.end_turn_btn, self.call_uno_btn, self.show_hand_btn]
         self.refresh_components()
 
     def refresh_components(self):
         self.clear_items()
-        self.add_item(make_game_container(self.game, self.extra_text, self))
+        self.add_item(make_game_container(self.game, self.extra_text, buttons=self._cached_buttons))
 
     def _get_player(self, interaction: discord.Interaction) -> Optional[Player]:
         return next((player for player in self.game.players if player.id == interaction.user.id), None)
 
-    @discord.ui.button(label="Play Card", style=discord.ButtonStyle.primary)
-    async def play_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def play_card_callback(self, interaction: discord.Interaction):
         if not self.game.started:
             await interaction.response.send_message("The game hasn't started yet.", ephemeral=True)
             return
@@ -748,8 +772,7 @@ class GameView(discord.ui.LayoutView):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="Draw Card", style=discord.ButtonStyle.secondary)
-    async def draw_card(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def draw_card_callback(self, interaction: discord.Interaction):
         player = self._get_player(interaction)
         if not player:
             await interaction.response.send_message("You're not in this game.", ephemeral=True)
@@ -775,8 +798,7 @@ class GameView(discord.ui.LayoutView):
                 self.game.advance_turn()
         await self.cog.refresh_game_state(interaction.channel, self.game, extra)
 
-    @discord.ui.button(label="End Turn", style=discord.ButtonStyle.secondary)
-    async def end_turn(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def end_turn_callback(self, interaction: discord.Interaction):
         player = self._get_player(interaction)
         if not player:
             await interaction.response.send_message("You're not in this game.", ephemeral=True)
@@ -788,8 +810,7 @@ class GameView(discord.ui.LayoutView):
         await interaction.response.defer()
         await self.cog.refresh_game_state(interaction.channel, self.game, msg)
 
-    @discord.ui.button(label="Call UNO", style=discord.ButtonStyle.danger)
-    async def call_uno(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def call_uno_callback(self, interaction: discord.Interaction):
         player = self._get_player(interaction)
         if not player:
             await interaction.response.send_message("You're not in this game.", ephemeral=True)
@@ -800,8 +821,7 @@ class GameView(discord.ui.LayoutView):
             self.cog._cancel_uno_penalty(interaction.channel.id, player.id)
             await self.cog.refresh_game_state(interaction.channel, self.game, msg)
 
-    @discord.ui.button(label="Show Hand", style=discord.ButtonStyle.success)
-    async def show_hand(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_hand_callback(self, interaction: discord.Interaction):
         player = self._get_player(interaction)
         if not player:
             await interaction.response.send_message("You're not in this game.", ephemeral=True)
@@ -817,14 +837,21 @@ class LobbyView(discord.ui.LayoutView):
         self.cog = cog
         self.game = game
         self.channel = channel
+        
+        self.join_btn = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
+        self.join_btn.callback = self.join_callback
+        
+        self.start_btn = discord.ui.Button(label="Start Game", style=discord.ButtonStyle.primary)
+        self.start_btn.callback = self.start_callback
+        
+        self._cached_buttons = [self.join_btn, self.start_btn]
         self.refresh_components()
 
     def refresh_components(self):
         self.clear_items()
-        self.add_item(make_lobby_container(self.game, self))
+        self.add_item(make_lobby_container(self.game, buttons=self._cached_buttons))
 
-    @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def join_callback(self, interaction: discord.Interaction):
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("This command only works in a server.", ephemeral=True)
             return
@@ -832,8 +859,7 @@ class LobbyView(discord.ui.LayoutView):
         self.refresh_components()
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Start Game", style=discord.ButtonStyle.primary)
-    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def start_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.game.host_id:
             await interaction.response.send_message("Only the host can start the game.", ephemeral=True)
             return

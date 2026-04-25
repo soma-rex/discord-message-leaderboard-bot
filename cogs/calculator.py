@@ -204,7 +204,7 @@ def build_session_container(
     action_key: str | None = None,
     result: CalculationResult | None = None,
     error_text: str | None = None,
-    view: "CalcSessionView" | None = None,
+    buttons: list[discord.ui.Button] | None = None,
 ) -> discord.ui.Container:
     container = discord.ui.Container(accent_color=discord.Color.blurple())
     container.add_item(discord.ui.TextDisplay("## Calculator"))
@@ -233,33 +233,46 @@ def build_session_container(
             container.add_item(discord.ui.Separator())
             container.add_item(discord.ui.TextDisplay("Your original equation stays unchanged. Use another button to try a different operation."))
 
-    if view:
-        container.add_item(discord.ui.ActionRow(
-            view.evaluate_button,
-            view.simplify_button,
-            view.differentiate_button,
-            view.integrate_button
-        ))
-        container.add_item(discord.ui.ActionRow(
-            view.solve_button,
-            view.domain_button,
-            view.latex_button
-        ))
+    if buttons:
+        container.add_item(discord.ui.ActionRow(*buttons[:4]))
+        container.add_item(discord.ui.ActionRow(*buttons[4:]))
     return container
 
 
 class CalcSessionView(discord.ui.LayoutView):
-    def __init__(self, owner_id: int, expression: str, variable: str | None, container: discord.ui.Container):
+    def __init__(self, owner_id: int, expression: str, variable: str | None, container: discord.ui.Container | None):
         super().__init__(timeout=600)
         self.owner_id = owner_id
         self.expression = expression
         self.variable = variable
+        
+        self.evaluate_button = discord.ui.Button(label="Evaluate", style=discord.ButtonStyle.primary)
+        self.evaluate_button.callback = self.evaluate_button_callback
+        self.simplify_button = discord.ui.Button(label="Simplify", style=discord.ButtonStyle.secondary)
+        self.simplify_button.callback = self.simplify_button_callback
+        self.differentiate_button = discord.ui.Button(label="Differentiate", style=discord.ButtonStyle.secondary)
+        self.differentiate_button.callback = self.differentiate_button_callback
+        self.integrate_button = discord.ui.Button(label="Integrate", style=discord.ButtonStyle.secondary)
+        self.integrate_button.callback = self.integrate_button_callback
+        self.solve_button = discord.ui.Button(label="Solve", style=discord.ButtonStyle.secondary)
+        self.solve_button.callback = self.solve_button_callback
+        self.domain_button = discord.ui.Button(label="Domain", style=discord.ButtonStyle.secondary)
+        self.domain_button.callback = self.domain_button_callback
+        self.latex_button = discord.ui.Button(label="LaTeX", style=discord.ButtonStyle.secondary)
+        self.latex_button.callback = self.latex_button_callback
+        
+        self._cached_buttons = [
+            self.evaluate_button, self.simplify_button, self.differentiate_button, self.integrate_button,
+            self.solve_button, self.domain_button, self.latex_button
+        ]
+        
         self.container = container
         self.refresh_components()
 
     def refresh_components(self):
         self.clear_items()
-        self.add_item(self.container)
+        if self.container is not None:
+            self.add_item(self.container)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.owner_id:
@@ -272,11 +285,11 @@ class CalcSessionView(discord.ui.LayoutView):
         try:
             result = action(self.expression, self.variable)
         except CalculatorError as exc:
-            self.container = build_session_container(self.expression, self.variable, action_key, error_text=str(exc), view=self)
+            self.container = build_session_container(self.expression, self.variable, action_key, error_text=str(exc), buttons=self._cached_buttons)
         except Exception as exc:
-            self.container = build_session_container(self.expression, self.variable, action_key, error_text=f"Calculation failed: {exc}", view=self)
+            self.container = build_session_container(self.expression, self.variable, action_key, error_text=f"Calculation failed: {exc}", buttons=self._cached_buttons)
         else:
-            self.container = build_session_container(self.expression, self.variable, action_key, result=result, view=self)
+            self.container = build_session_container(self.expression, self.variable, action_key, result=result, buttons=self._cached_buttons)
         
         # Re-add container
         self.clear_items()
@@ -289,32 +302,25 @@ class CalcSessionView(discord.ui.LayoutView):
         # Let's try a different approach: keep the buttons and just replace the container item.
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Evaluate", style=discord.ButtonStyle.primary, row=0)
-    async def evaluate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def evaluate_button_callback(self, interaction: discord.Interaction):
         await self._run_action(interaction, "evaluate")
 
-    @discord.ui.button(label="Simplify", style=discord.ButtonStyle.secondary, row=0)
-    async def simplify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def simplify_button_callback(self, interaction: discord.Interaction):
         await self._run_action(interaction, "simplify")
 
-    @discord.ui.button(label="Differentiate", style=discord.ButtonStyle.secondary, row=0)
-    async def differentiate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def differentiate_button_callback(self, interaction: discord.Interaction):
         await self._run_action(interaction, "differentiate")
 
-    @discord.ui.button(label="Integrate", style=discord.ButtonStyle.secondary, row=0)
-    async def integrate_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def integrate_button_callback(self, interaction: discord.Interaction):
         await self._run_action(interaction, "integrate")
 
-    @discord.ui.button(label="Solve", style=discord.ButtonStyle.secondary, row=1)
-    async def solve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def solve_button_callback(self, interaction: discord.Interaction):
         await self._run_action(interaction, "solve")
 
-    @discord.ui.button(label="Domain", style=discord.ButtonStyle.secondary, row=1)
-    async def domain_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def domain_button_callback(self, interaction: discord.Interaction):
         await self._run_action(interaction, "domain")
 
-    @discord.ui.button(label="LaTeX", style=discord.ButtonStyle.secondary, row=1)
-    async def latex_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def latex_button_callback(self, interaction: discord.Interaction):
         await self._run_action(interaction, "latex")
 
 
@@ -335,7 +341,7 @@ class CalculatorCog(commands.Cog, name="Calculator"):
         
         # Create a dummy view to build the container with buttons
         view = CalcSessionView(interaction.user.id, expr, var, None)
-        container = build_session_container(expr, var, view=view)
+        container = build_session_container(expr, var, buttons=view._cached_buttons)
         view.container = container
         view.refresh_components()
         

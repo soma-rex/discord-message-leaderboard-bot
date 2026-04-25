@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 cogs/rumble.py - Rumble tracker (detects Rumble bot, tracks participants)
 """
@@ -260,21 +261,26 @@ class AliveView(discord.ui.LayoutView):
     def __init__(self, rumble: dict):
         super().__init__(timeout=None)
         self.rumble = rumble
+        
+        self.check_alive_button = discord.ui.Button(
+            label="Am I Alive?",
+            style=discord.ButtonStyle.primary,
+            emoji="<:rumble:1486707784450969700>",
+            custom_id=RUMBLE_STATUS_BUTTON_ID,
+        )
+        self.check_alive_button.callback = self.check_alive_callback
+        
+        self._cached_buttons = [self.check_alive_button]
         self.refresh_components()
 
     def refresh_components(self):
         self.clear_items()
         container = build_status_prompt_container()
-        container.add_item(discord.ui.ActionRow(self.check_alive))
+        if self._cached_buttons:
+            container.add_item(discord.ui.ActionRow(*self._cached_buttons))
         self.add_item(container)
 
-    @discord.ui.button(
-        label="Am I Alive?",
-        style=discord.ButtonStyle.primary,
-        emoji="<:rumble:1486707784450969700>",
-        custom_id=RUMBLE_STATUS_BUTTON_ID,
-    )
-    async def check_alive(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def check_alive_callback(self, interaction: discord.Interaction):
         user_id = interaction.user.id
         if user_id not in self.rumble["participants"]:
             container = discord.ui.Container(accent_color=discord.Color.orange())
