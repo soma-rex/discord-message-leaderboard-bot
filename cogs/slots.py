@@ -69,9 +69,8 @@ class SlotsView(discord.ui.LayoutView):
         self.spins = 0
 
     def refresh_components(self, container: discord.ui.Container):
-        for child in list(self.children):
-            if isinstance(child, discord.ui.Container):
-                self.remove_item(child)
+        self.clear_items()
+        container.add_item(discord.ui.ActionRow(self.spin_button, self.cashout_button))
         self.add_item(container)
 
     async def update_container(self, interaction: discord.Interaction) -> tuple[discord.ui.Container, bool]:
@@ -216,7 +215,7 @@ class SlotsCog(commands.Cog, ChipsMixin, name="Slots"):
 
         # Perform first spin
         container, _ = await view.update_container(interaction)
-        view.add_item(container)
+        view.refresh_components(container)
 
         # Send with buttons
         await interaction.followup.send(view=view)

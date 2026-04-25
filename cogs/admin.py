@@ -29,7 +29,12 @@ class AssetToggleView(discord.ui.LayoutView):
         self.local_button.label = local_label
         self.local_button.disabled = local_container is None
         self.global_button.disabled = False
-        self.add_item(global_container)
+        self.refresh_components(global_container)
+
+    def refresh_components(self, container: discord.ui.Container):
+        self.clear_items()
+        container.add_item(discord.ui.ActionRow(self.global_button, self.local_button))
+        self.add_item(container)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.requester_id:
@@ -39,10 +44,7 @@ class AssetToggleView(discord.ui.LayoutView):
 
     @discord.ui.button(style=discord.ButtonStyle.primary)
     async def global_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for child in list(self.children):
-            if isinstance(child, discord.ui.Container):
-                self.remove_item(child)
-        self.add_item(self.global_container)
+        self.refresh_components(self.global_container)
         await interaction.response.edit_message(view=self)
 
     @discord.ui.button(style=discord.ButtonStyle.secondary)
@@ -50,10 +52,7 @@ class AssetToggleView(discord.ui.LayoutView):
         if self.local_container is None:
             await interaction.response.send_message("No local asset is set for this user.", ephemeral=True)
             return
-        for child in list(self.children):
-            if isinstance(child, discord.ui.Container):
-                self.remove_item(child)
-        self.add_item(self.local_container)
+        self.refresh_components(self.local_container)
         await interaction.response.edit_message(view=self)
 
 

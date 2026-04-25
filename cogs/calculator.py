@@ -204,6 +204,7 @@ def build_session_container(
     action_key: str | None = None,
     result: CalculationResult | None = None,
     error_text: str | None = None,
+    view: "CalcSessionView" | None = None,
 ) -> discord.ui.Container:
     container = discord.ui.Container(accent_color=discord.Color.blurple())
     container.add_item(discord.ui.TextDisplay("## Calculator"))
@@ -213,26 +214,37 @@ def build_session_container(
     if action_key is None:
         container.add_item(discord.ui.TextDisplay("**Operation**\nChoose a button below."))
         container.add_item(discord.ui.TextDisplay("**Result**\nNo calculation run yet."))
-        return container
+    else:
+        label = CALCULATOR_ACTIONS[action_key][0]
+        container.add_item(discord.ui.TextDisplay(f"**Operation**\n{label}"))
+        if error_text is not None:
+            container.add_item(discord.ui.TextDisplay(f"**Result**\n{error_text}"))
+        else:
+            assert result is not None
+            container.add_item(discord.ui.TextDisplay(f"**Result**\n```text\n{result.output_text}\n```"))
+            if result.extra_lines:
+                container.add_item(discord.ui.TextDisplay(f"**Details**\n" + "\n".join(result.extra_lines)))
+            
+            container.add_item(discord.ui.TextDisplay("**LaTeX Preview**"))
+            gallery = discord.ui.MediaGallery()
+            gallery.add_item(media=build_latex_image_url(result.output_latex))
+            container.add_item(gallery)
+            
+            container.add_item(discord.ui.Separator())
+            container.add_item(discord.ui.TextDisplay("Your original equation stays unchanged. Use another button to try a different operation."))
 
-    label = CALCULATOR_ACTIONS[action_key][0]
-    container.add_item(discord.ui.TextDisplay(f"**Operation**\n{label}"))
-    if error_text is not None:
-        container.add_item(discord.ui.TextDisplay(f"**Result**\n{error_text}"))
-        return container
-
-    assert result is not None
-    container.add_item(discord.ui.TextDisplay(f"**Result**\n```text\n{result.output_text}\n```"))
-    if result.extra_lines:
-        container.add_item(discord.ui.TextDisplay(f"**Details**\n" + "\n".join(result.extra_lines)))
-    
-    container.add_item(discord.ui.TextDisplay("**LaTeX Preview**"))
-    gallery = discord.ui.MediaGallery()
-    gallery.add_item(media=build_latex_image_url(result.output_latex))
-    container.add_item(gallery)
-    
-    container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay("Your original equation stays unchanged. Use another button to try a different operation."))
+    if view:
+        container.add_item(discord.ui.ActionRow(
+            view.evaluate_button,
+            view.simplify_button,
+            view.differentiate_button,
+            view.integrate_button
+        ))
+        container.add_item(discord.ui.ActionRow(
+            view.solve_button,
+            view.domain_button,
+            view.latex_button
+        ))
     return container
 
 
@@ -246,12 +258,8 @@ class CalcSessionView(discord.ui.LayoutView):
         self.refresh_components()
 
     def refresh_components(self):
-        # We need to preserve buttons, but update the container
-        # Actually, buttons are decorators, so they are added to the class.
-        # LayoutView.clear_items() removes them.
-        # So we should re-add them if they were removed.
-        # But wait, decorators add them to the view instance on init.
-        pass
+        self.clear_items()
+        self.add_item(self.container)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.owner_id:
@@ -264,11 +272,11 @@ class CalcSessionView(discord.ui.LayoutView):
         try:
             result = action(self.expression, self.variable)
         except CalculatorError as exc:
-            self.container = build_session_container(self.expression, self.variable, action_key, error_text=str(exc))
+            self.container = build_session_container(self.expression, self.variable, action_key, error_text=str(exc), view=self)
         except Exception as exc:
-            self.container = build_session_container(self.expression, self.variable, action_key, error_text=f"Calculation failed: {exc}")
+            self.container = build_session_container(self.expression, self.variable, action_key, error_text=f"Calculation failed: {exc}", view=self)
         else:
-            self.container = build_session_container(self.expression, self.variable, action_key, result=result)
+            self.container = build_session_container(self.expression, self.variable, action_key, result=result, view=self)
         
         # Re-add container
         self.clear_items()
@@ -324,9 +332,13 @@ class CalculatorCog(commands.Cog, name="Calculator"):
     async def calc(self, interaction: discord.Interaction, expression: str, variable: str | None = None):
         expr = expression.strip()
         var = variable.strip() if variable else None
-        container = build_session_container(expr, var)
-        view = CalcSessionView(interaction.user.id, expr, var, container)
-        view.add_item(container)
+        
+        # Create a dummy view to build the container with buttons
+        view = CalcSessionView(interaction.user.id, expr, var, None)
+        container = build_session_container(expr, var, view=view)
+        view.container = container
+        view.refresh_components()
+        
         await interaction.response.send_message(view=view)
 
 

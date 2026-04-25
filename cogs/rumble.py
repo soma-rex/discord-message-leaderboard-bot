@@ -260,7 +260,13 @@ class AliveView(discord.ui.LayoutView):
     def __init__(self, rumble: dict):
         super().__init__(timeout=None)
         self.rumble = rumble
-        self.add_item(build_status_prompt_container())
+        self.refresh_components()
+
+    def refresh_components(self):
+        self.clear_items()
+        container = build_status_prompt_container()
+        container.add_item(discord.ui.ActionRow(self.check_alive))
+        self.add_item(container)
 
     @discord.ui.button(
         label="Am I Alive?",

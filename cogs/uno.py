@@ -422,7 +422,7 @@ class UnoGame:
         return sorted(((player.display_name, player.points()) for player in self.players), key=lambda item: item[1])
 
 
-def make_game_container(game: UnoGame, extra_text: str = "") -> discord.ui.Container:
+def make_game_container(game: UnoGame, extra_text: str = "", view: "GameView" | None = None) -> discord.ui.Container:
     top = game.top_card
     color_hex = COLOR_HEX.get(top.effective_color.value, 0x95A5A6)
     mode_label = "Classic UNO" if game.mode == GameMode.CLASSIC else "UNO No Mercy"
@@ -452,10 +452,13 @@ def make_game_container(game: UnoGame, extra_text: str = "") -> discord.ui.Conta
 
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay("Use the buttons below or /uno hand to see your cards."))
+    
+    if view:
+        container.add_item(discord.ui.ActionRow(view.play_card, view.draw_card, view.end_turn, view.call_uno))
     return container
 
 
-def make_hand_container(player: Player, game: UnoGame, page: int = 0) -> discord.ui.Container:
+def make_hand_container(player: Player, game: UnoGame, page: int = 0, view: "CardPickerView" | None = None) -> discord.ui.Container:
     top = game.top_card
     start = page * 25
     end = start + 25
@@ -481,6 +484,25 @@ def make_hand_container(player: Player, game: UnoGame, page: int = 0) -> discord
     total_pages = max(1, (len(player.hand) + 24) // 25)
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(f"Page {page + 1}/{total_pages} | ✅ playable | ❌ blocked"))
+    
+    if view:
+        container.add_item(discord.ui.ActionRow(view.previous_page, view.next_page))
+        container.add_item(discord.ui.ActionRow(CardSelect(view)))
+    return container
+
+
+def make_lobby_container(game: UnoGame, view: "LobbyView" | None = None) -> discord.ui.Container:
+    mode_label = "Classic UNO" if game.mode == GameMode.CLASSIC else "UNO No Mercy"
+    container = discord.ui.Container(accent_color=discord.Color.blurple())
+    container.add_item(discord.ui.TextDisplay(f"## {mode_label} Lobby"))
+    
+    player_list = "\n".join(f"- {player.display_name}" for player in game.players)
+    container.add_item(discord.ui.TextDisplay(
+        f"Host: **{game.host_id}**\nPress **Join Game** to join.\nHost presses **Start Game** when ready.\n\n**Players:**\n{player_list}"
+    ))
+
+    if view:
+        container.add_item(discord.ui.ActionRow(view.join, view.start))
     return container
 
 
@@ -661,18 +683,7 @@ class CardPickerView(discord.ui.LayoutView):
 
     def refresh_components(self):
         self.clear_items()
-        
-        total_pages = max(1, (len(self.player.hand) + 24) // 25)
-        self.previous_page.disabled = self.page == 0
-        self.next_page.disabled = self.page >= total_pages - 1
-        
-        # Action Row for pagination
-        self.add_item(discord.ui.ActionRow(self.previous_page, self.next_page))
-        
-        # Container for the hand and card picker
-        container = make_hand_container(self.player, self.game, self.page)
-        container.add_item(discord.ui.ActionRow(CardSelect(self)))
-        self.add_item(container)
+        self.add_item(make_hand_container(self.player, self.game, self.page, self))
 
     @discord.ui.button(label="Prev", style=discord.ButtonStyle.secondary, row=1)
     async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -713,10 +724,8 @@ class GameView(discord.ui.LayoutView):
         self.refresh_components()
 
     def refresh_components(self):
-        # We need to preserve buttons but update the container
-        # For simplicity in this large conversion, we'll manually re-add buttons or just the container
-        # Actually, let's just make sure the container is at the end
-        pass
+        self.clear_items()
+        self.add_item(make_game_container(self.game, self.extra_text, self))
 
     def _get_player(self, interaction: discord.Interaction) -> Optional[Player]:
         return next((player for player in self.game.players if player.id == interaction.user.id), None)
@@ -803,25 +812,23 @@ class GameView(discord.ui.LayoutView):
 
 
 class LobbyView(discord.ui.LayoutView):
-    def __init__(self, cog: "UnoCog", game: UnoGame, channel: discord.TextChannel, container: discord.ui.Container):
+    def __init__(self, cog: "UnoCog", game: UnoGame, channel: discord.TextChannel):
         super().__init__(timeout=120)
         self.cog = cog
         self.game = game
         self.channel = channel
-        self.container = container
-        self.add_item(container)
+        self.refresh_components()
 
     def refresh_components(self):
-        # We want to update the player list in the container
-        player_list = "\n".join(f"- {player.display_name}" for player in self.game.players)
-        self.container.children[1].children[0].content = f"Host: **{self.game.host_id}**\nPress **Join Game** to join.\nHost presses **Start Game** when ready.\n\n**Players:**\n{player_list}"
+        self.clear_items()
+        self.add_item(make_lobby_container(self.game, self))
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("This command only works in a server.", ephemeral=True)
             return
-        player_list = "\n".join(f"- {player.display_name}" for player in self.game.players)
+        self.game.add_player(interaction.user)
         self.refresh_components()
         await interaction.response.edit_message(view=self)
 
@@ -907,9 +914,7 @@ class UnoCog(commands.Cog, name="UNO"):
                 pass
 
         game.resolve_skip_stack()
-        container = make_game_container(game, extra)
         view = GameView(self, game, extra_text=extra)
-        view.add_item(container)
         msg = await channel.send(view=view)
         self.last_game_messages[channel.id] = msg
 
@@ -1009,27 +1014,7 @@ class UnoCog(commands.Cog, name="UNO"):
         game.add_player(ctx.author)
         self.active_games[ctx.channel.id] = game
 
-        mode_label = "Classic UNO" if game_mode == GameMode.CLASSIC else "UNO No Mercy"
-        extra = ""
-        if game_mode == GameMode.NO_MERCY:
-            extra = (
-                "\n\n**No Mercy Rules**\n"
-                "- Draw cards stack.\n"
-                "- Wild +4 can stack.\n"
-                "- Skips stack.\n"
-                "- If you can't stack, you draw the whole pile."
-            )
-
-        container = discord.ui.Container(accent_color=discord.Color.blurple())
-        container.add_item(discord.ui.TextDisplay(f"## {mode_label} Lobby"))
-        container.add_item(discord.ui.TextDisplay(
-            f"Host: **{ctx.author.display_name}**\n"
-            "Press **Join Game** to join.\n"
-            "Host presses **Start Game** when ready."
-            f"{extra}"
-        ))
-        
-        view = LobbyView(self, game, ctx.channel, container)
+        view = LobbyView(self, game, ctx.channel)
         await ctx.send(view=view)
 
     @uno_group.command(name="start", description="Start a UNO lobby in this channel")

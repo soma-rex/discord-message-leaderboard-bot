@@ -137,7 +137,7 @@ class BlackjackCog(commands.Cog, ChipsMixin, name="Blackjack"):
 
         view = BlackjackView(interaction.channel.id, game, self)
         container = self._build_container(game, reveal_dealer=False)
-        view.add_item(container)
+        view.refresh_components(container)
         await interaction.response.send_message(f"{interaction.user.mention}", view=view)
 
     def _build_container(self, game: dict, reveal_dealer: bool) -> discord.ui.Container:
@@ -200,9 +200,8 @@ class BlackjackView(discord.ui.LayoutView):
         self.cog = cog
 
     def refresh_components(self, container: discord.ui.Container):
-        for child in list(self.children):
-            if isinstance(child, discord.ui.Container):
-                self.remove_item(child)
+        self.clear_items()
+        container.add_item(discord.ui.ActionRow(self.hit, self.stand, self.double_down))
         self.add_item(container)
 
     async def on_timeout(self):
