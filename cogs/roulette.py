@@ -131,9 +131,9 @@ class RouletteCog(commands.Cog, ChipsMixin, name="Roulette"):
         container.add_item(discord.ui.TextDisplay(f"## {title}"))
         container.add_item(discord.ui.Separator())
         
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{ROULETTE_BALL} **Your Bet**: {description}")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{ROULETTE_WHEEL} **Landed On**: {color} **{result}**")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {bet:,} | **Balance**: {balance:,}")))
+        container.add_item(discord.ui.TextDisplay(f"{ROULETTE_BALL} **Your Bet**: {description}"))
+        container.add_item(discord.ui.TextDisplay(f"{ROULETTE_WHEEL} **Landed On**: {color} **{result}**"))
+        container.add_item(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {bet:,} | **Balance**: {balance:,}"))
         
         container.add_item(discord.ui.Separator())
         container.add_item(discord.ui.TextDisplay(f"Payout: {payout}x  |  @{interaction.user.display_name}"))
@@ -150,7 +150,7 @@ class RouletteCog(commands.Cog, ChipsMixin, name="Roulette"):
         lines = [f"`{name:<8}` - {description} -> **{mult}x**" for name, (description, mult, _) in BET_TYPES.items()]
         lines.append("`straight` - Single number (0-36) -> **35x**")
         
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay("\n".join(lines))))
+        container.add_item(discord.ui.TextDisplay("\n".join(lines)))
         
         view = discord.ui.LayoutView()
         view.add_item(container)

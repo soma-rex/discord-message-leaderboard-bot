@@ -433,13 +433,11 @@ def make_game_container(game: UnoGame, extra_text: str = "") -> discord.ui.Conta
     if top.is_wild and top.chosen_color:
         top_display += f" ({top.chosen_color.value.title()})"
     
-    info_section = discord.ui.Section(
-        discord.ui.TextDisplay(f"**Top Card**: {top_display}\n**Draw Pile**: {len(game.deck)}")
-    )
+    info_section = discord.ui.TextDisplay(f"**Top Card**: {top_display}\n**Draw Pile**: {len(game.deck)}")
     container.add_item(info_section)
 
     if game.pending_draw > 0:
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"⚠️ **Stacked Draw**: +{game.pending_draw} pending")))
+        container.add_item(discord.ui.TextDisplay(f"⚠️ **Stacked Draw**: +{game.pending_draw} pending"))
 
     turn_lines = []
     for index, player in enumerate(game.players):
@@ -447,10 +445,10 @@ def make_game_container(game: UnoGame, extra_text: str = "") -> discord.ui.Conta
         uno_flag = " | UNO" if player.called_uno else ""
         turn_lines.append(f"{marker}{player.display_name} - {player.card_count} card(s){uno_flag}")
     
-    container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Players**\n" + "\n".join(turn_lines))))
+    container.add_item(discord.ui.TextDisplay("**Players**\n" + "\n".join(turn_lines)))
 
     if extra_text:
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Status**\n{extra_text}")))
+        container.add_item(discord.ui.TextDisplay(f"**Status**\n{extra_text}"))
 
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay("Use the buttons below or /uno hand to see your cards."))
@@ -478,7 +476,7 @@ def make_hand_container(player: Player, game: UnoGame, page: int = 0) -> discord
         mark = "✅" if playable else "❌"
         lines.append(f"`{absolute_index}.` {card.emoji} {mark}")
 
-    container.add_item(discord.ui.Section(discord.ui.TextDisplay("\n".join(lines))))
+    container.add_item(discord.ui.TextDisplay("\n".join(lines)))
     
     total_pages = max(1, (len(player.hand) + 24) // 25)
     container.add_item(discord.ui.Separator())
@@ -663,13 +661,18 @@ class CardPickerView(discord.ui.LayoutView):
 
     def refresh_components(self):
         self.clear_items()
-        self.add_item(CardSelect(self))
+        
         total_pages = max(1, (len(self.player.hand) + 24) // 25)
         self.previous_page.disabled = self.page == 0
         self.next_page.disabled = self.page >= total_pages - 1
-        self.add_item(self.previous_page)
-        self.add_item(self.next_page)
-        self.add_item(make_hand_container(self.player, self.game, self.page))
+        
+        # Action Row for pagination
+        self.add_item(discord.ui.ActionRow(self.previous_page, self.next_page))
+        
+        # Container for the hand and card picker
+        container = make_hand_container(self.player, self.game, self.page)
+        container.add_item(discord.ui.ActionRow(CardSelect(self)))
+        self.add_item(container)
 
     @discord.ui.button(label="Prev", style=discord.ButtonStyle.secondary, row=1)
     async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1121,16 +1124,14 @@ class UnoCog(commands.Cog, name="UNO"):
             ("`/uno hand`", "Show your hand"),
         ]
         for name, description in commands_list:
-            container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**{name}**\n{description}")))
+            container.add_item(discord.ui.TextDisplay(f"**{name}**\n{description}"))
             
-        container.add_item(discord.ui.Section(
-            discord.ui.TextDisplay(
-                "**Buttons**\n"
-                "**Play Card** - open your hand picker\n"
-                "**Draw Card** - draw from the deck\n"
-                "**Call UNO** - call UNO with 1 card left\n"
-                "**Show Hand** - view your hand privately"
-            )
+        container.add_item(discord.ui.TextDisplay(
+            "**Buttons**\n"
+            "**Play Card** - open your hand picker\n"
+            "**Draw Card** - draw from the deck\n"
+            "**Call UNO** - call UNO with 1 card left\n"
+            "**Show Hand** - view your hand privately"
         ))
         
         view = discord.ui.LayoutView()

@@ -152,10 +152,10 @@ class BlackjackCog(commands.Cog, ChipsMixin, name="Blackjack"):
         container = discord.ui.Container(accent_color=discord.Color.dark_green())
         container.add_item(discord.ui.TextDisplay(f"## {SPADE_EMOJI} {HEART_EMOJI} Blackjack {DIAM_EMOJI} {CLUB_EMOJI}"))
         
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**{dealer_label}**\n{dealer_display}")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**You ({player_val})**\n{format_hand(game['player'])}")))
+        container.add_item(discord.ui.TextDisplay(f"**{dealer_label}**\n{dealer_display}"))
+        container.add_item(discord.ui.TextDisplay(f"**You ({player_val})**\n{format_hand(game['player'])}"))
         
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {game['bet']:,} | **Balance**: {self.get_chips(game['uid']):,}")))
+        container.add_item(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {game['bet']:,} | **Balance**: {self.get_chips(game['uid']):,}\n-# {self.get_active_title(game['uid'])}"))
         return container
 
     def resolve_game(self, channel_id: int) -> tuple:

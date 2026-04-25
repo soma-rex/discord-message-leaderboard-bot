@@ -196,7 +196,7 @@ class AdminCog(commands.Cog, name="Admin"):
         global_container = discord.ui.Container(accent_color=discord.Color.blurple())
         global_container.add_item(discord.ui.TextDisplay(f"## Global Banner for {user}"))
         if global_banner:
-            global_container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Open**: [Global Banner]({global_banner.url})")))
+            global_container.add_item(discord.ui.TextDisplay(f"**Open**: [Global Banner]({global_banner.url})"))
             global_container.add_item(discord.ui.MediaGallery().add_item(media=global_banner.url))
         else:
             global_container.add_item(discord.ui.TextDisplay("*This user does not have a global banner set.*"))
@@ -205,7 +205,7 @@ class AdminCog(commands.Cog, name="Admin"):
         if guild_banner:
             local_container = discord.ui.Container(accent_color=discord.Color.blurple())
             local_container.add_item(discord.ui.TextDisplay(f"## Local Banner for {user}"))
-            local_container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Open**: [Local Banner]({guild_banner.url})")))
+            local_container.add_item(discord.ui.TextDisplay(f"**Open**: [Local Banner]({guild_banner.url})"))
             local_container.add_item(discord.ui.MediaGallery().add_item(media=guild_banner.url))
 
         view = AssetToggleView(interaction.user.id, global_container, local_container, local_label="Local")

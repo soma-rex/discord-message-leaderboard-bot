@@ -115,8 +115,8 @@ class SlotsView(discord.ui.LayoutView):
         container = discord.ui.Container(accent_color=embed_color)
         container.add_item(discord.ui.TextDisplay(f"## {title}"))
         
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Reels**: {'  |  '.join(reels)}\n**Result**: {result_text}")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {self.bet:,} | **Balance**: {balance:,} | **Spins**: {self.spins}")))
+        container.add_item(discord.ui.TextDisplay(f"**Reels**: {'  |  '.join(reels)}\n**Result**: {result_text}"))
+        container.add_item(discord.ui.TextDisplay(f"{CHIP_EMOJI} **Bet**: {self.bet:,} | **Balance**: {balance:,} | **Spins**: {self.spins}"))
         
         container.add_item(discord.ui.Separator())
         container.add_item(discord.ui.TextDisplay(f"@{interaction.user.display_name}"))
@@ -232,7 +232,7 @@ class SlotsCog(commands.Cog, ChipsMixin, name="Slots"):
             lines.append(f"{emoji} x 3 -> **{mult}x**  |  {rarity}")
         lines.append("\n*Two of any kind -> **bet returned (1x)***")
         
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay("\n".join(lines))))
+        container.add_item(discord.ui.TextDisplay("\n".join(lines)))
         
         view = discord.ui.LayoutView()
         view.add_item(container)

@@ -207,24 +207,24 @@ def build_session_container(
 ) -> discord.ui.Container:
     container = discord.ui.Container(accent_color=discord.Color.blurple())
     container.add_item(discord.ui.TextDisplay("## Calculator"))
-    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Original**\n```text\n{expression}\n```")))
-    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Variable**\n{variable or 'Auto'}")))
+    container.add_item(discord.ui.TextDisplay(f"**Original**\n```text\n{expression}\n```"))
+    container.add_item(discord.ui.TextDisplay(f"**Variable**\n{variable or 'Auto'}"))
 
     if action_key is None:
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Operation**\nChoose a button below.")))
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay("**Result**\nNo calculation run yet.")))
+        container.add_item(discord.ui.TextDisplay("**Operation**\nChoose a button below."))
+        container.add_item(discord.ui.TextDisplay("**Result**\nNo calculation run yet."))
         return container
 
     label = CALCULATOR_ACTIONS[action_key][0]
-    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Operation**\n{label}")))
+    container.add_item(discord.ui.TextDisplay(f"**Operation**\n{label}"))
     if error_text is not None:
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Result**\n{error_text}")))
+        container.add_item(discord.ui.TextDisplay(f"**Result**\n{error_text}"))
         return container
 
     assert result is not None
-    container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Result**\n```text\n{result.output_text}\n```")))
+    container.add_item(discord.ui.TextDisplay(f"**Result**\n```text\n{result.output_text}\n```"))
     if result.extra_lines:
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**Details**\n" + "\n".join(result.extra_lines))))
+        container.add_item(discord.ui.TextDisplay(f"**Details**\n" + "\n".join(result.extra_lines)))
     
     container.add_item(discord.ui.TextDisplay("**LaTeX Preview**"))
     gallery = discord.ui.MediaGallery()

@@ -129,7 +129,7 @@ SELECT_OPTIONS = [
 ]
 
 
-def build_help_container(page_key: str) -> discord.ui.Container:
+def build_help_container(page_key: str, view: "HelpView") -> discord.ui.Container:
     page = HELP_PAGES[page_key]
     container = discord.ui.Container(accent_color=discord.Color.blurple())
     
@@ -138,7 +138,9 @@ def build_help_container(page_key: str) -> discord.ui.Container:
     container.add_item(discord.ui.TextDisplay(page["description"]))
     
     for name, value in page["fields"]:
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(f"**{name}**\n{value}")))
+        container.add_item(discord.ui.TextDisplay(f"**{name}**\n{value}"))
+    
+    container.add_item(discord.ui.ActionRow(HelpSelect(view)))
     return container
 
 
@@ -185,8 +187,7 @@ class HelpView(discord.ui.LayoutView):
 
     def refresh_components(self):
         self.clear_items()
-        self.add_item(HelpSelect(self))
-        self.add_item(build_help_container(self.page_key))
+        self.add_item(build_help_container(self.page_key, self))
 
 
 class HelpCog(commands.Cog, name="Help"):
